@@ -181,3 +181,34 @@ vasp-cache 提供两个核心操作：
                 OUTCAR/CONTCAR
                 （写回磁盘）
 ```
+
+
+## 与下游工具的关系
+
+vasp-cache 不直接调用下游工具，但它的设计受下游工具的需求驱动。
+
+### pydefect（缺陷分析）
+
+pydefect 的 CLI（`pydefect_vasp cr`、`pydefect_vasp pbes` 等）从磁盘读取 OUTCAR 文件。这意味着：
+
+- vasp-cache 的 `restore` 功能存在的直接原因：把缓存的 OUTCAR 写回磁盘，让 pydefect CLI 能读到
+- 如果 pydefect 提供 Python API 可以直接接收 `outcar_dict`，则 vasp-cache 可以直接提供解析后的数据，跳过磁盘读写
+
+### vasp-sop（管线）
+
+vasp-sop 是 vasp-cache 的第一个也是当前最主要的消费者。它使用缓存做两件事：
+
+- **提交去重**：查缓存 → 算过就不提交 VASP
+- **文件恢复**：缓存有但磁盘无 → restore → 继续后处理
+
+### 其他潜在消费者
+
+任何需要 VASP 计算结果的工具都可以成为消费者：
+
+- 机器学习力场训练脚本（批量查询总能和结构）
+- 热力学数据库构建工具（按 formula 聚合总能）
+- 高-throughput 筛选工具（按 bandgap 范围过滤候选材料）
+
+### 设计原则
+
+vasp-cache 对下游做**零假设**——不要求下游用特定版本、特定框架、甚至不要求下游用 Python。只要下游能读 JSON 或读文件，就能消费 vasp-cache 的数据。
