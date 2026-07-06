@@ -263,3 +263,55 @@ cache_lookup(dir) → 检测 dir 的 content_hash → 查 meta.json
 ```
 
 如果 INCAR 或 k 点有任何不同 → content_hash 不同 → 独立计算。
+
+
+## 存储与生命周期
+
+### 存储位置
+
+默认路径：`~/.vasp_cache/`（通过 `override_cache_root` 可切换）。
+
+```
+~/.vasp_cache/
+├── meta.json      # 轻量元数据（235 KB / 478 条）
+├── blobs.json     # 大文件解析数据（213 MB / 同条目数）
+└── cache.db       # （可选）旧版 SQLite 迁移源
+```
+
+meta vs blob 的体积差异源于存储内容：
+
+| 文件 | 每条大小 | 内容 |
+|------|---------|------|
+| meta.json | ~500 B | formula、energy、bandgap、tags、source_dir…… |
+| blobs.json | ~500 KB | outcar_dict、vasprun_dict、structure_dict（序列化 JSON）|
+
+### 生命周期
+
+**当前行为**：永久保留，不主动清理。
+
+元数据（meta.json）体积可控——478 条收敛记录仅 235 KB，即使扩展到 10 万条也只需 ~50 MB。
+
+blobs.json 是主要存储消耗——一条记录 ~500 KB。当前 #91 正在讨论是否继续写入 blobs.json（因为数据写入但从不读取）。如果去掉 blob 存储，缓存的总磁盘占用仅取决于 meta.json，非常轻量。
+
+### 清理
+
+目前没有内置过期或清理策略。缓存目录可以安全删除——vasp-cache 只是存储，不是唯一来源。删除后下次 `put` 会重建。
+
+如果需要手动清理：
+- 删除整个 `~/.vasp_cache/` 目录（最干净）
+- 或只删 `blobs.json`（保留元数据，但 restore 的 structure_dict 回退路径失效）
+
+### 并发
+
+两个层面：
+
+1. **同一进程内**：`_get_stores()` 使用 `threading.Lock` + double-checked locking，首次初始化后无锁竞争
+2. **跨进程 / NFS**：JSONStore 底层基于文件操作，多个进程同时写入可能冲突。实际使用中（vasp-soc 的 ProcessPoolExecutor 之前曾并行写入），将写入操作设计为批量 + 增量模式，避免大量并发写入同一文件。
+
+### 多用户共享
+
+缓存在 `~/.vasp_cache/`，默认只对当前用户可见。如果需要共享（如课题组公共缓存）：
+
+- 将 `CACHE_ROOT` 指向 NFS 共享目录
+- 文件权限设为 664，确保同组用户可读写
+- 并发写入风险同上（JSONStore 没有服务端锁）
