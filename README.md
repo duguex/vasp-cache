@@ -40,6 +40,7 @@ vasp-cache 把这些数据集中存储，让后续查询和复用成为可能。
 | 项目 | 关系 |
 |------|------|
 | **[vasp-sop](https://github.com/duguex/pydefect-workflow-sop)** | vasp-cache 从中拆分而来。vasp-sop 是 VASP 点缺陷计算管线，vasp-cache 是其缓存层的独立版本 |
+| **[vasp-wiki](https://github.com/duguex/vasp_incar)** | VASP 知识库——INCAR 参数、输入文件模板、常见问题排错、DFT 工具集 |。vasp-sop 是 VASP 点缺陷计算管线，vasp-cache 是其缓存层的独立版本 |
 | **[pymatgen](https://github.com/materialsproject/pymatgen)** | 结构解析、OUTCAR/Vasprun 解析、Spacegroup 分析。vasp-cache 的核心下游依赖 |
 | **[maggma](https://github.com/materialsproject/maggma)** | JSONStore 后端——提供 MongoDB 风格的本地文件数据库 |
 | **[emmet](https://github.com/materialsproject/emmet)** | TaskDoc —— VASP 计算的结构化解析结果 |
