@@ -124,47 +124,60 @@ from vasp_cache import (
               └─────────────────┘
 ```
 
-## 整体视角
+## 两个操作
 
-### 输入
+vasp-cache 提供两个核心操作：
 
-vasp-cache 接受的输入是一个 **VASP 计算目录**：
+### 1. 入库（ingest）
+
+把 VASP 计算结果存入缓存。
 
 ```
-/path/to/calc/
-├── OUTCAR      (必需) 计算结果
-├── CONTCAR     (推荐) 最终结构
-├── vasprun.xml (可选) 详细输出
-├── INCAR       (推荐) 输入参数
-├── KPOINTS     (推荐) k 点设置
-└── POTCAR      (推荐) 赝势
+输入:  VASP 计算目录
+      /path/to/calc/
+      ├── OUTCAR     计算结果
+      ├── CONTCAR    最终结构
+      ├── vasprun.xml (可选) 详细输出
+      ├── INCAR      输入参数
+      ├── KPOINTS    k 点设置
+      └── POTCAR     赝势
+
+处理:  解析 OUTCAR → 提取总能/带隙/力/结构
+      计算输入指纹（content_hash）
+      写入 meta.json + blobs.json
+
+输出:  无（数据已存入缓存）
 ```
 
-不需要用户做任何预处理——目录里有 OUTCAR 就可以存。
+### 2. 查询（query）
 
-### 输出
+从缓存中检索已有的计算结果。
 
-vasp-cache 提供两样东西：
+```
+输入:  搜索条件
+      - formula（必需或可选，视查询类型而定）
+      - content_hash 或 task_name（精确匹配）
+      - functional、calc_type、tags（语义过滤）
+      - bandgap_min、lattice_max（范围过滤）
 
-1. **结构化查询能力**——按化学式、能带隙、计算类型等条件搜索，返回已经解析好的计算结果数据。使用者不需要知道 OUTCAR 在哪里、不需要重新解析。
+处理:  meta_store.query() → MongoDB 风格过滤
 
-2. **文件恢复能力**——从缓存把 OUTCAR/CONTCAR 写回磁盘。使用者的工具如果只能读文件（如 pydefect CLI），缓存可以替它准备好输入。
+输出:  结构化计算结果
+      - 总能、带隙、原子数、空间群
+      - 晶格常数、计算类型、标签
+      - 原始目录路径（source_dir）
+      - 可选的完整 OUTCAR/CONTCAR 文件恢复
+```
 
 ### 数据流
 
 ```
-        输入                         输出
-─────────────────────────────────────────────────
-                 put       ┌──────────────┐
-  VASP 计算目录 ────────▶  │  meta.json   │──▶ 结构化查询
-  (OUTCAR, INCAR, ...)    │  blobs.json  │     query(formula, bandgap, ...)
-                          └──────┬───────┘
-                                 │ restore
-                                 ▼
-                            OUTCAR/CONTCAR
-                            （写回磁盘）
+    入库                         查询
+                                
+  VASP 计算目录 ──→ vasp-cache ──→ 结构化数据
+  (OUTCAR+输入)      │             (总能、带隙、tags...)
+                     │ 恢复
+                     ▼
+                OUTCAR/CONTCAR
+                （写回磁盘）
 ```
-
-### 一句话
-
-**输入是一个 VASP 计算目录，输出是一个可搜索的结构化数据库，外加文件恢复能力。**
