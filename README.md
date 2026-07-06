@@ -32,36 +32,25 @@ vasp-cache 把这些数据集中存储，让后续查询和复用成为可能。
 - 不做 VASP 输入生成
 
 
-## 环境要求
 
-### 运行时
+## 参考
 
-| 资源 | 要求 |
+### 相关项目
+
+| 项目 | 关系 |
 |------|------|
-| Python | >= 3.10 |
-| 依赖 | pymatgen, maggma, emmet-core |
-| 存储 | `~/.vasp_cache/` 目录，meta.json + blobs.json |
-| 磁盘 | 每条缓存记录 ~几 KB（meta）+ 可选 ~几 MB（blob）|
+| **[vasp-sop](https://github.com/duguex/pydefect-workflow-sop)** | vasp-cache 从中拆分而来。vasp-sop 是 VASP 点缺陷计算管线，vasp-cache 是其缓存层的独立版本 |
+| **[pymatgen](https://github.com/materialsproject/pymatgen)** | 结构解析、OUTCAR/Vasprun 解析、Spacegroup 分析。vasp-cache 的核心下游依赖 |
+| **[maggma](https://github.com/materialsproject/maggma)** | JSONStore 后端——提供 MongoDB 风格的本地文件数据库 |
+| **[emmet](https://github.com/materialsproject/emmet)** | TaskDoc —— VASP 计算的结构化解析结果 |
+| **[Materials Project](https://next-gen.materialsproject.org/)** | 材料数据库，提供参考能量和晶体结构 |
 
-### 数据来源
+### 相关文档
 
-vasp-cache 本身不运行 VASP——它存储和索引已经算好的计算结果。数据来源可以是：
+- **maggma JSONStore 文档**：了解底层存储机制（https://maggma.readthedocs.io/）
+- **pymatgen Outcar / Vasprun 解析**：了解写入缓存的数据格式
+- **vasp-sop AGENTS.md**：了解 cache 模块的原始设计背景和集成方式
 
-- **vasp-sop**：管线计算完成后自动调用 `put`
-- **手动导入**：`vasp-cache put /path/to/OUTCAR/dir`
-- **批量导入**：`vasp-cache put -r /projects/` 递归扫描收敛的 OUTCAR
-- **其他工具**：任何产生 VASP 输出目录的工具都可以调用 Python API
+## 许可
 
-### 存储布局
-
-```
-~/.vasp_cache/
-├── meta.json          # 轻量元数据（maggma JSONStore）
-├── blobs.json         # 大文件解析数据（可选，见 #91）
-└── cache.db           # （旧版 SQLite 迁移源，可选）
-```
-
-### 可选
-
-- **emmet / pymatgen**：用于 TaskDoc 解析（如果不用 emmet，有 regex 回退）
-- **MP API key**（`MP_API_KEY` 或 `PMG_MAPI_KEY`）：用于材料查询（仅 vasp-sop 需要，vasp-cache 核心不需要）
+MIT
