@@ -12,7 +12,7 @@ VASP 计算结果缓存——持久化存储、语义查询、跨项目复用。
 
 2. **跨项目复用**——一个项目的 VASP 计算结果对另一个项目有参考价值（GaN 的能带隙、SiC 的晶格常数……）。传统做法是每个项目各自维护 OUTCAR 目录，无法搜索。vasp-cache 提供统一的查询入口。
 
-3. **工具链解耦**——vasp-sop 管线需要缓存来做提交去重和文件恢复，但缓存本身不依赖管线逻辑。任何 Python 工具或 CLI 都可以独立使用 vasp-cache 来存取 VASP 数据。
+3. **工具无关**——不绑定任何管线框架（vasp-sop、custodian、pydefect），任何 Python 脚本或 CLI 都可以独立使用。
 
 ## 非目标
 
@@ -37,7 +37,7 @@ VASP 计算结果缓存——持久化存储、语义查询、跨项目复用。
 
 | 项目 | 关系 |
 |------|------|
-| **[vasp-sop](https://github.com/duguex/pydefect-workflow-sop)** | vasp-cache 从中拆分而来。vasp-sop 是 VASP 点缺陷计算管线，vasp-cache 是其缓存层的独立版本 |
+| **[vasp-sop](https://github.com/duguex/pydefect-workflow-sop)** | VASP 点缺陷计算管线。vasp-cache 的前身，现在通过接口依赖 vasp-cache |
 | **[vasp-wiki](https://github.com/duguex/vasp_incar)** | VASP 知识库——INCAR 参数、输入文件模板、常见问题排错、DFT 工具集 |
 | **[pymatgen](https://github.com/materialsproject/pymatgen)** | 结构解析、OUTCAR/Vasprun 解析、Spacegroup 分析。vasp-cache 的核心下游依赖 |
 | **[maggma](https://github.com/materialsproject/maggma)** | JSONStore 后端——提供 MongoDB 风格的本地文件数据库 |
