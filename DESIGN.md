@@ -69,60 +69,27 @@ from vasp_cache import (
 )
 ```
 
-## 从 vasp-sop 迁移策略
+## 与 vasp-sop 的接口边界
 
-1. 将 `vasp_sop/core/cache.py` 中通用函数复制到 vasp-cache：
-   - `vasp_results_put` → `put`
-   - `vasp_results_get` → `get`
-   - `cache_lookup` → `lookup`
-   - `query` → `query`
-   - `restore_from_cache` → `restore`
-   - `list_cache` → `list_entries`
-   - `cache_stats` → `stats`
-   - 内部函数：`_parse_vasp_dir`, `_build_blob`, `_detect_calc_info`, `_content_hash` 等
-   - 常量：`MAX_LATTICE`, `lattice_too_large`
-
-2. vasp-sop 改为依赖 vasp-cache：
-   - 删除 `vasp_sop/core/cache.py` 中移动的函数
-   - 保留 `submissions.db` 相关函数（`mark_submitted`, `is_submitted`, `clear_submission`, `_get_submitted_dirs`）
-   - 导入 `from vasp_cache import lookup as cache_lookup` 等
-
-3. 修 #91（停止写无用 blob）在步骤 1 中做
-
-### 数据流
+vasp-sop 通过以下接口消费 vasp-cache，不直接访问内部存储：
 
 ```
-                    put(dir)
-                        │
-                        ▼
-              ┌─────────────────┐
-              │  _detect_calc_info │── formula, content_hash, task_name
-              └────────┬────────┘
-                       │
-                       ▼
-              ┌─────────────────┐
-              │  _parse_vasp_dir  │── dict{converged, total_energy, ...}
-              └────────┬────────┘
-                       │
-                       ▼
-              ┌─────────────────┐    converged?    ┌──────────────┐
-              │  _build_blob      │──────────────▶  │ blobs.json   │
-              └────────┬────────┘                   └──────────────┘
-                       │
-                       ▼
-              ┌─────────────────┐
-              │ meta.json        │
-              │ (JSONStore)       │
-              └─────────────────┘
-
-                    query(...)
-                        │
-                        ▼
-              ┌─────────────────┐
-              │ meta_store.query  │── list[dict]
-              │ (MongoDB syntax) │
-              └─────────────────┘
+vasp-sop 需要                    vasp-cache 提供
+─────────────────────────────────────────────────
+cache_lookup(dir)                lookup(dir) → dict | None
+vasp_results_put(dir)            put(dir) → None
+vasp_results_get(f, key)         get(formula, key) → dict | None
+query(...)                       query(...) → list[dict]
+restore_from_cache(dir)          restore(dir) → bool
+list_cache(n)                    list_entries(n) → list[dict]
+cache_stats()                    stats() → dict
 ```
+
+vasp-sop 保留的部分（不迁移）：
+- submissions.db（`mark_submitted` / `is_submitted` / `clear_submission` / `_get_submitted_dirs`）
+- 这是管线调度逻辑，不属于通用缓存
+
+## 从 vasp-sop 迁移策略（待执行）
 
 ## 两个操作
 
