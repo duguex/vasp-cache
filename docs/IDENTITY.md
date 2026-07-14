@@ -1,6 +1,6 @@
 # Identity contract (content_hash)
 
-**Status:** active · **key_generation:** `3` · **profile:** package `mapping.default.yaml`
+**Status:** active · **key_generation:** `4` · **profile:** package `mapping.default.yaml`
 
 ## What is identity?
 
@@ -60,3 +60,7 @@ Inputs-only workdirs used for `has`/`fetch` should carry the same structure file
 - Niggli/origin standardization (open research; not required for current gen 3).  
 - Soft similarity search as identity (separate feature).  
 - Auto-migrate of legacy JSONStore (`~/.vasp_sop/meta.json` is not read).
+
+## INCAR hard audit
+
+See [INCAR_HARD_AUDIT.md](./INCAR_HARD_AUDIT.md) (gen 4 keys).

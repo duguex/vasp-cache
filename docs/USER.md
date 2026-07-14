@@ -24,7 +24,7 @@ vasp-cache status
 - **仅收敛**计算会 `put` 成功（OUTCAR 需完整结束标记）。
 - 未收敛 → 跳过（不入库）。
 - 超大晶胞（`max_abc > 25` Å，可配）→ 跳过。
-- **不存 POTCAR**；身份默认也不依赖 POTCAR 文件（mapping gen 3）。
+- **不存 POTCAR**；身份默认也不依赖 POTCAR 文件（mapping gen 4）。
 - 同一 `content_hash` 再 `put` → **覆盖元数据**，CAS 按内容去重（不会变成两条逻辑结果）。
 
 ## 日常命令
@@ -102,7 +102,7 @@ MP 下载缓存、jobs.db 仍在 `~/.vasp_sop/`，与结果库分离。
 
 ## 身份（摘要）
 
-详见 [IDENTITY.md](./IDENTITY.md)。硬键含结构 geom_hash、KPOINTS、选定 INCAR；**不含** POTCAR；generation 前缀 `3:`。
+详见 [IDENTITY.md](./IDENTITY.md)。硬键含结构 geom_hash、KPOINTS、选定 INCAR；**不含** POTCAR；generation 前缀 `4:`。
 
 ## 非目标
 

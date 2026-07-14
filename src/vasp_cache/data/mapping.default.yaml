@@ -1,9 +1,9 @@
-# Default mapping profile — structure geometry in hard key (gen 3)
-key_generation: 3
+# Default mapping profile — structure geometry in hard key (gen 4)
+key_generation: 4
 description: >
   Hard key includes structure geometry hash (not formula-only).
-  Gen 3: POTCAR is NOT part of identity (cache never stores POTCAR;
-  missing pot file is fine — has/fetch without POTCAR works).
+  Gen 3: POTCAR not in identity.
+  Gen 4: INCAR hard audit — NELECT/MAGMOM/NUPDOWN/AEXX/LNONCOLLINEAR/LMAXMIX.
 hard:
   # formula | geom_hash | false
   structure: geom_hash
@@ -20,15 +20,21 @@ hard:
     - LDAUU
     - LDAUJ
     - LDAUL
+    - LMAXMIX
     - GGA
     - IVDW
     - LASPH
     - METAGGA
-    # hybrid / spin — reduce false merges
+    # hybrid / spin / charge
     - LHFCALC
     - HFSCREEN
+    - AEXX
     - ISPIN
     - LSORBIT
+    - LNONCOLLINEAR
+    - MAGMOM
+    - NUPDOWN
+    - NELECT
 
 soft:
   incar:
@@ -36,3 +42,4 @@ soft:
     - NELM
     - NELMIN
     - EDIFF
+    - EDIFFG

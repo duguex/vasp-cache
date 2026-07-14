@@ -13,7 +13,7 @@ def test_content_hash_stable(tmp_path: Path):
     h1 = content_hash(d)
     h2 = content_hash(d)
     assert h1 == h2
-    assert h1.startswith("3:")
+    assert h1.startswith("4:")
     # INCAR fingerprint includes ENCUT
     assert "ENCUT=520" in h1 or "ENCUT=520.0" in h1
     assert "_default" in h1  # potcar not in identity
@@ -60,7 +60,7 @@ def test_potcar_change_changes_hash_when_enabled(tmp_path: Path):
     """With hard.potcar=true, changing POTCAR species flips the hash."""
     d = write_minimal_inputs(tmp_path / "a")
     mapping = {
-        "key_generation": 4,
+        "key_generation": 5,
         "hard": {
             "structure": "geom_hash",
             "kpoints": True,
@@ -122,4 +122,25 @@ Direct
 """
     (d / "CONTCAR").write_text(gaas_poscar)
     assert content_hash(d) != h_si
-    # Should now contain Ga2As2 (pymatgen reduced formula)
+
+
+def test_nelect_change_changes_hash(tmp_path: Path):
+    """Charged defects: NELECT is hard (gen4 audit)."""
+    d = write_minimal_inputs(tmp_path / "a")
+    h0 = content_hash(d)
+    (d / "INCAR").write_text(MINIMAL_INCAR + "\nNELECT = 8\n")
+    assert content_hash(d) != h0
+
+
+def test_magmom_change_changes_hash(tmp_path: Path):
+    d = write_minimal_inputs(tmp_path / "a")
+    h0 = content_hash(d)
+    (d / "INCAR").write_text(MINIMAL_INCAR + "\nMAGMOM = 2*1\n")
+    assert content_hash(d) != h0
+
+
+def test_aexx_change_changes_hash(tmp_path: Path):
+    d = write_minimal_inputs(tmp_path / "a")
+    h0 = content_hash(d)
+    (d / "INCAR").write_text(MINIMAL_INCAR + "\nAEXX = 0.25\n")
+    assert content_hash(d) != h0
