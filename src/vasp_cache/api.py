@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from vasp_cache.mapping import content_hash, load_mapping, mapping_digest
+from vasp_cache.parse import summarize_calc
 from vasp_cache.paths import get_project
 
 logger = logging.getLogger(__name__)
@@ -106,14 +107,14 @@ def put(
     job.doc["key_generation"] = m["key_generation"]
     job.doc["mapping_digest"] = mapping_digest(calc_dir, mapping=m)
 
-    # minimal doc (richer parse in Task 5)
+    # rich doc via summarize_calc
+    summary = summarize_calc(calc_dir)
+    for k, v in summary.items():
+        job.doc[k] = v
     job.doc["formula"] = formula
     job.doc["task_name"] = task_name
-    job.doc["total_energy"] = energy
-    job.doc["converged"] = converged
     job.doc["source_dir"] = str(calc_dir.resolve())
     job.doc["cached_at"] = time.time()
-    job.doc["parsed_by"] = "minimal"
     return ch
 
 
