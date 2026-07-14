@@ -4,7 +4,7 @@ Black-box VASP calculation cache: **same inputs → restore outputs without re-r
 
 Backend: **CAS + SQLite** (`cas/` objects + `meta.sqlite`). Hard identity is a tunable **Mapping Profile** → `content_hash`. Identical file bytes are stored once.
 
-See `docs/DESIGN-storage-v2.md`. Legacy signac trees migrate with `scripts/migrate_signac_to_cas.py`.
+See `docs/DESIGN-storage-v2.md`. **User guide:** [`docs/USER.md`](docs/USER.md). **Identity contract:** [`docs/IDENTITY.md`](docs/IDENTITY.md). Legacy signac trees migrate with `scripts/migrate_signac_to_cas.py`.
 
 ## Install
 
