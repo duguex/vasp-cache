@@ -51,25 +51,14 @@ def test_put_does_not_store_potcar(cache_root: Path, tmp_path: Path):
     assert "POTCAR" not in (entry.get("objects") or {})
 
 
-def test_put_unconverged_outcar_stores_with_false_flag(cache_root: Path, tmp_path: Path):
+def test_put_skips_unconverged_outcar(cache_root: Path, tmp_path: Path):
+    """Unconverged calculations are not cached (product rule)."""
     _reset_project()
     calc = write_minimal_inputs(tmp_path / "calc")
     write_minimal_outcar(calc, energy="-8.3", converged=False)
     ch = put(calc)
-    assert ch is not None, "put should store even when unconverged if energy present"
-    from vasp_cache.meta import get_entry
-    from vasp_cache.paths import cache_root as cr
-
-    entry = get_entry(cr(), ch)
-    assert entry is not None
-    assert entry["total_energy"] == -8.3
-    assert entry["converged"] is False
-    # clearing OUTCAR + CONTCAR -> fetch should restore
-    for name in ("OUTCAR", "CONTCAR"):
-        (calc / name).unlink()
-    assert has(calc) is True
-    assert fetch(calc) is True
-    assert (calc / "OUTCAR").is_file()
+    assert ch is None
+    assert has(calc) is False
 
 
 def test_put_skips_large_lattice(cache_root: Path, tmp_path: Path):

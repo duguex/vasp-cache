@@ -58,7 +58,8 @@ def _outcar_usable(src_dir: Path) -> tuple[bool, float | None, bool]:
     energies = re.findall(r"free\s+energy\s+TOTEN\s*=\s*([-\d.]+)", tail)
     energy = float(energies[-1]) if energies else None
     converged = "General timing and accounting" in tail
-    usable = converged or energy is not None
+    # Energy alone is not enough: unconverged runs are not cached.
+    usable = converged
     return usable, energy, converged
 
 
@@ -71,12 +72,17 @@ def put(
     include: Iterable[str] = (),
 ) -> str | None:
     calc_dir = Path(calc_dir)
-    usable, _, _ = _outcar_usable(calc_dir)
+    usable, _, converged = _outcar_usable(calc_dir)
     if not usable:
-        logger.debug("skip put %s: no usable OUTCAR", calc_dir)
+        logger.debug("skip put %s: OUTCAR missing or not converged", calc_dir)
         return None
 
     summary = summarize_calc(calc_dir)
+    # Double-check parser flag if present
+    if summary.get("converged") is False:
+        logger.debug("skip put %s: summarize_calc reports not converged", calc_dir)
+        return None
+
     if MAX_LATTICE is not None and summary.get("max_abc", 0) > MAX_LATTICE:
         logger.debug(
             "skip put %s: max_abc %.1f > MAX_LATTICE %.1f",
