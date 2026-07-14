@@ -49,6 +49,22 @@ User overlay: `~/.vasp_cache/mapping.yaml` or `VASP_CACHE_MAPPING`.
 - Soft weights change nearness only.
 - Critical edits require bumping `key_generation`.
 
+## Real calculation verification
+
+Synthetic unit tests always run. Real OUTCAR trees use production **spin-defect** data (not abandoned archives):
+
+```bash
+# integration tests (needs NFS path or REAL_VASP_CALC_DIRS)
+pytest -m real_data -v
+
+# one-shot script
+python scripts/verify_real_calcs.py /path/to/complete_calc
+python scripts/verify_real_calcs.py --discover 5
+```
+
+Default discovery root: `REAL_VASP_CALC_ROOT` or  
+`/mnt/shared/home/2sidesniddle/vasp/2025_undergo_spin_defect`.
+
 ## Design
 
 See `docs/superpowers/specs/2026-07-14-vasp-cache-signac-design.md`.
