@@ -13,6 +13,7 @@ dependencies = [
     "signac>=2.0,<3",
     "pyyaml>=6.0",
     "emmet-core>=0.60",
+    "pymatgen>=2023.0",
 ]
 
 [project.optional-dependencies]

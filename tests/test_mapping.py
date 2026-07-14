@@ -207,3 +207,91 @@ class TestSoftDistance:
         # distance should handle missing keys gracefully
         d = soft_distance(v1, v2)
         assert isinstance(d, float)
+
+
+class TestKeyGenerationPolicy:
+    """Bump policy: critical edits require key_generation > default."""
+
+    def test_soft_only_change_ok_without_bump(self, tmp_path: Path):
+        """Changing only soft.incar does NOT require a generation bump."""
+        custom = {
+            "key_generation": 1,
+            "hard": {
+                "incar": ["ENCUT", "PREC", "ISMEAR", "SIGMA", "ISIF",
+                          "LDAU", "LDAUTYPE", "LDAUU", "LDAUJ", "LDAUL",
+                          "GGA", "IVDW", "LASPH", "METAGGA"],
+                "structure": True,
+                "kpoints": True,
+                "potcar": True,
+            },
+            "soft": {"incar": ["NSW", "NELM"]},
+        }
+        d = write_minimal_inputs(tmp_path / "a")
+        # This must not raise — soft-only change, same critical section
+        h = content_hash(d, mapping=custom)
+        assert h.startswith("1:")
+
+    def test_critical_change_same_generation_raises(self):
+        """Critical section differs but key_generation is NOT bumped."""
+        custom = {
+            "key_generation": 1,
+            "hard": {
+                "incar": ["ENCUT"],  # truncated vs default 14 keys
+                "structure": False,
+                "kpoints": False,
+                "potcar": False,
+            },
+            "soft": {"incar": []},
+        }
+        with pytest.raises(ValueError, match="key_generation"):
+            content_hash("/nonexistent", mapping=custom)
+
+    def test_critical_change_with_bumped_generation_ok(self):
+        """Critical section differs AND generation is bumped — allowed."""
+        custom = {
+            "key_generation": 2,
+            "hard": {
+                "incar": ["ENCUT"],
+                "structure": False,
+                "kpoints": False,
+                "potcar": False,
+            },
+            "soft": {"incar": []},
+        }
+        # Must not raise
+        h = content_hash("/nonexistent", mapping=custom)
+        assert h.startswith("2:")
+
+    def test_custom_yaml_without_bump_raises(self, tmp_path: Path):
+        """Loading a custom YAML file with critical changes but no bump."""
+        custom = tmp_path / "bad.yaml"
+        custom.write_text(
+            "key_generation: 1\n"
+            "hard:\n  incar: [ENCUT]\n  structure: false\n  kpoints: false\n  potcar: false\n"
+            "soft:\n  incar: []\n"
+        )
+        with pytest.raises(ValueError, match="key_generation"):
+            load_mapping(custom)
+
+
+    def test_identical_critical_yaml_accepts_same_generation(self, tmp_path: Path):
+        """Mapping with exactly the same critical section as default is OK at gen=1."""
+        default = [
+            "ENCUT", "PREC", "ISMEAR", "SIGMA", "ISIF",
+            "LDAU", "LDAUTYPE", "LDAUU", "LDAUJ", "LDAUL",
+            "GGA", "IVDW", "LASPH", "METAGGA",
+        ]
+        custom = tmp_path / "same.yaml"
+        lines = ["key_generation: 1", "hard:"]
+        lines.append("  incar:")
+        for k in default:
+            lines.append(f"    - {k}")
+        lines.append("  structure: true")
+        lines.append("  kpoints: true")
+        lines.append("  potcar: true")
+        lines.append("soft:")
+        lines.append("  incar: [NSW, NELM]")
+        custom.write_text("\n".join(lines) + "\n")
+        # Must not raise — critical section is identical to default
+        profile = load_mapping(custom)
+        assert profile["key_generation"] == 1

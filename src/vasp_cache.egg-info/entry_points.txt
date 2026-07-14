@@ -1,0 +1,2 @@
+[console_scripts]
+vasp-cache = vasp_cache.cli:main

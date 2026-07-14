@@ -42,7 +42,80 @@ def load_mapping(path: str | Path | None = None) -> dict[str, Any]:
     import yaml
 
     with open(path) as f:
-        return yaml.safe_load(f)
+        mapping = yaml.safe_load(f)
+
+    # Enforce key-generation bump policy for non-default mappings
+    if path.resolve() != _DEFAULT_MAPPING_PATH.resolve():
+        _validate_key_generation(mapping)
+
+    return mapping
+# ---------------------------------------------------------------------------
+# Key-generation bump policy
+# ---------------------------------------------------------------------------
+
+_BUILTIN_DEFAULT: dict[str, Any] | None = None
+
+
+def _critical_section(mapping: dict[str, Any]) -> dict[str, Any]:
+    """Extract the hard (critical) fields for equality comparison.
+
+    The critical section controls which inputs affect the mapping digest.
+    Changing any of these relative to the default profile requires a
+    ``key_generation`` bump.
+    """
+    hard = mapping.get("hard", {})
+    return {
+        "structure": hard.get("structure", True),
+        "kpoints": hard.get("kpoints", True),
+        "potcar": hard.get("potcar", True),
+        "incar": sorted(hard.get("incar", [])),
+    }
+
+
+def _load_builtin_default() -> dict[str, Any]:
+    """Return the built-in default mapping (cached)."""
+    global _BUILTIN_DEFAULT
+    if _BUILTIN_DEFAULT is None:
+        import yaml
+        with open(_DEFAULT_MAPPING_PATH) as f:
+            _BUILTIN_DEFAULT = yaml.safe_load(f)
+    return _BUILTIN_DEFAULT
+
+
+def _validate_key_generation(mapping: dict[str, Any]) -> None:
+    """Bump policy: critical edits require ``key_generation > default``.
+
+    If the *critical* section of *mapping* (the ``hard`` fields that determine
+    which inputs enter the mapping digest) differs from the built-in default,
+    then ``key_generation`` **must** be strictly greater than the default's
+    ``key_generation``.
+
+    Soft-only changes — those affecting only ``soft.incar`` — do **not**
+    require a bump.
+
+    Raises
+    ------
+    ValueError
+        When the critical section differs but ``key_generation`` was not bumped.
+    """
+    default = _load_builtin_default()
+    default_cs = _critical_section(default)
+    resolved_cs = _critical_section(mapping)
+
+    if resolved_cs == default_cs:
+        return  # Only soft fields changed — no bump needed.
+
+    default_gen = default.get("key_generation", 1)
+    resolved_gen = mapping.get("key_generation", 0)
+
+    if resolved_gen <= default_gen:
+        raise ValueError(
+            f"Mapping profile changes critical fields (hard section: "
+            f"structure / kpoints / potcar / incar keys) from the default, "
+            f"but key_generation={resolved_gen} is not strictly greater than "
+            f"the default's key_generation={default_gen}. "
+            f"Set key_generation to at least {default_gen + 1}."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -128,6 +201,9 @@ def mapping_digest(
         resolved = load_mapping(mapping)
     else:
         resolved = mapping
+
+    # Enforce key-generation bump policy (catches raw dicts passed directly)
+    _validate_key_generation(resolved)
 
     body = _compute_hard_body(src_dir, resolved)
     return f"{resolved['key_generation']}:{body}"

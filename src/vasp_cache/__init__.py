@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from vasp_cache.fingerprint import content_hash as _legacy_content_hash
 
 from vasp_cache.mapping import (
     content_hash,
