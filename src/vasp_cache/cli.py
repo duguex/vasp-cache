@@ -10,6 +10,24 @@ from pathlib import Path
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="vasp-cache", description="VASP calculation cache")
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help="diagnostic logging (-v INFO detail already on; -vv DEBUG)",
+    )
+    parser.add_argument(
+        "--audit-log",
+        type=Path,
+        default=None,
+        help="append-only JSONL audit path (default: $VASP_CACHE_ROOT/logs/audit.jsonl)",
+    )
+    parser.add_argument(
+        "--no-audit",
+        action="store_true",
+        help="disable JSONL audit trail for this invocation",
+    )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_put = sub.add_parser("put", help="Ingest a complete VASP calculation")
@@ -68,6 +86,20 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
 
+    from vasp_cache.audit import enable_audit, set_audit_log, setup_logging
+
+    if args.verbose >= 2:
+        setup_logging("DEBUG")
+    elif args.verbose >= 1:
+        setup_logging("INFO")
+    else:
+        setup_logging("WARNING")  # quiet CLI; audit JSONL still records
+    if args.no_audit:
+        enable_audit(False)
+    elif args.audit_log is not None:
+        set_audit_log(args.audit_log)
+    # else: default path under cache root when events fire
+
     if args.cmd == "put":
         from vasp_cache.api import put
 
@@ -82,7 +114,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         ch = put(args.dir)
         if ch is None:
-            print("skip: not usable", file=sys.stderr)
+            print("skip: not usable (see audit log / -v)", file=sys.stderr)
             return 1
         print(ch)
         return 0

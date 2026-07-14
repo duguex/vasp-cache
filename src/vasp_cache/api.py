@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from vasp_cache import cas, meta
+from vasp_cache.audit import audit
 from vasp_cache.mapping import content_hash as compute_content_hash
 from vasp_cache.mapping import load_mapping, mapping_digest
 from vasp_cache.parse import MAX_LATTICE, summarize_calc
@@ -74,24 +75,38 @@ def put(
     calc_dir = Path(calc_dir)
     usable, _, converged = _outcar_usable(calc_dir)
     if not usable:
-        logger.debug("skip put %s: OUTCAR missing or not converged", calc_dir)
+        reason = "not_converged_or_missing_outcar"
+        logger.debug("skip put %s: %s", calc_dir, reason)
+        audit(
+            "put_skip",
+            dir=str(calc_dir.resolve()),
+            reason=reason,
+            converged=converged,
+        )
         return None
 
     summary = summarize_calc(calc_dir)
-    # Double-check parser flag if present
     if summary.get("converged") is False:
-        logger.debug("skip put %s: summarize_calc reports not converged", calc_dir)
+        reason = "summarize_not_converged"
+        logger.debug("skip put %s: %s", calc_dir, reason)
+        audit("put_skip", dir=str(calc_dir.resolve()), reason=reason)
         return None
 
     if MAX_LATTICE is not None and summary.get("max_abc", 0) > MAX_LATTICE:
+        reason = "max_lattice"
         logger.debug(
             "skip put %s: max_abc %.1f > MAX_LATTICE %.1f",
             calc_dir,
             summary["max_abc"],
             MAX_LATTICE,
         )
+        audit(
+            "put_skip",
+            dir=str(calc_dir.resolve()),
+            reason=reason,
+            max_abc=summary.get("max_abc"),
+        )
         return None
-
     ch = compute_content_hash(calc_dir)
     f, tn = _detect_formula_task(calc_dir)
     formula = formula or f
@@ -120,11 +135,12 @@ def put(
             objects[name] = cas.put_file(root, src)
 
     if "OUTCAR" not in objects:
-        logger.debug("skip put %s: OUTCAR not stored", calc_dir)
+        reason = "outcar_not_stored"
+        logger.debug("skip put %s: %s", calc_dir, reason)
+        audit("put_skip", dir=str(calc_dir.resolve()), reason=reason)
         return None
 
     m = load_mapping()
-    # core columns + remaining summary fields in extra
     core_keys = {
         "formula",
         "task_name",
@@ -136,6 +152,7 @@ def put(
         "tags",
     }
     extra = {k: v for k, v in summary.items() if k not in core_keys}
+    existed = meta.has_entry(root, ch)
     meta.upsert_entry(
         root,
         content_hash=ch,
@@ -155,6 +172,18 @@ def put(
         cached_at=time.time(),
         extra=extra or None,
     )
+    audit(
+        "put_ok",
+        dir=str(calc_dir.resolve()),
+        content_hash=ch,
+        formula=formula,
+        task_name=task_name,
+        total_energy=summary.get("total_energy"),
+        overwrite=existed,
+        n_objects=len(objects),
+        cache_root=str(root),
+        key_generation=m.get("key_generation"),
+    )
     return ch
 
 
@@ -164,11 +193,34 @@ def has(input_dir: Path | str) -> bool:
     root = cache_root()
     entry = meta.get_entry(root, ch)
     if entry is None:
+        audit(
+            "has_miss",
+            dir=str(input_dir.resolve()),
+            content_hash=ch,
+            reason="no_meta",
+            cache_root=str(root),
+        )
         return False
     out_id = (entry.get("objects") or {}).get("OUTCAR")
     if not out_id:
+        audit(
+            "has_miss",
+            dir=str(input_dir.resolve()),
+            content_hash=ch,
+            reason="no_outcar_object",
+            cache_root=str(root),
+        )
         return False
-    return cas.has_object(root, out_id)
+    ok = cas.has_object(root, out_id)
+    audit(
+        "has_hit" if ok else "has_miss",
+        dir=str(input_dir.resolve()),
+        content_hash=ch,
+        reason=None if ok else "cas_missing",
+        formula=entry.get("formula"),
+        cache_root=str(root),
+    )
+    return ok
 
 
 def fetch(input_dir: Path | str) -> bool:
@@ -177,9 +229,17 @@ def fetch(input_dir: Path | str) -> bool:
     root = cache_root()
     entry = meta.get_entry(root, ch)
     if entry is None:
+        audit(
+            "fetch_miss",
+            dir=str(input_dir.resolve()),
+            content_hash=ch,
+            reason="no_meta",
+            cache_root=str(root),
+        )
         return False
     objects = entry.get("objects") or {}
     restored = False
+    restored_names: list[str] = []
     for name in _OUTPUT_NAMES:
         digest = objects.get(name)
         if not digest:
@@ -187,8 +247,18 @@ def fetch(input_dir: Path | str) -> bool:
         if not cas.has_object(root, digest):
             continue
         cas.materialize(root, digest, input_dir / name)
+        restored_names.append(name)
         if name == "OUTCAR":
             restored = True
+    audit(
+        "fetch_ok" if restored else "fetch_miss",
+        dir=str(input_dir.resolve()),
+        content_hash=ch,
+        formula=entry.get("formula"),
+        restored=restored_names,
+        reason=None if restored else "no_outcar_restored",
+        cache_root=str(root),
+    )
     return restored
 
 
