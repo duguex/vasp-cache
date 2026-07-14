@@ -11,7 +11,7 @@ requires-python = ">=3.10"
 license = { text = "MIT" }
 dependencies = [
     "signac>=2.0,<3",
-    "pymatgen>=2023.0",
+    "pyyaml>=6.0",
     "emmet-core>=0.60",
 ]
 
@@ -26,3 +26,6 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.setuptools.package-data]
+vasp_cache = ["data/*.yaml"]

@@ -1,0 +1,34 @@
+# Default mapping profile — legacy-compatible with vasp_sop content_hash
+key_generation: 1
+description: "Legacy-compatible mapping — hard keys match vasp_sop INCAR fingerprint keys"
+hard:
+  # INCAR keys that contribute to the hard mapping digest
+  incar:
+    - ENCUT
+    - PREC
+    - ISMEAR
+    - SIGMA
+    - ISIF
+    - LDAU
+    - LDAUTYPE
+    - LDAUU
+    - LDAUJ
+    - LDAUL
+    - GGA
+    - IVDW
+    - LASPH
+    - METAGGA
+  # Whether structure formula contributes to hard digest
+  structure: true
+  # Whether kpoint grid contributes to hard digest
+  kpoints: true
+  # Whether POTCAR species token contributes to hard digest
+  potcar: true
+
+soft:
+  # INCAR keys that only affect soft vector (not hard digest)
+  incar:
+    - NSW
+    - NELM
+    - NELMIN
+    - EDIFF
