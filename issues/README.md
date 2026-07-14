@@ -19,16 +19,17 @@ Local markdown trackers + GitHub: https://github.com/duguex/vasp-cache/issues
 | [0013](0013-ci-real-data-optional.md) | [#14](https://github.com/duguex/vasp-cache/issues/14) | Optional CI real_data | P2 |
 | [0014](0014-batch-cache-put-performance.md) | [#15](https://github.com/duguex/vasp-cache/issues/15) | Batch cache put performance | P1 |
 | [0015](0015-policy-doc-identity-contract.md) | [#16](https://github.com/duguex/vasp-cache/issues/16) | Identity contract policy doc | P0 |
-
-Labels: `P0` / `P1` / `P2`, plus `identity` / `ops` / `enhancement` / `documentation` as appropriate.
-
 | [0016](0016-archive-export-import.md) | [#17](https://github.com/duguex/vasp-cache/issues/17) | Whole-cache archive export/import | P1 |
 | [0017](0017-meta-dump-jsonl.md) | [#18](https://github.com/duguex/vasp-cache/issues/18) | Metadata dump JSONL | P1 |
 | [0018](0018-ie-migrate-e2e-tests.md) | [#19](https://github.com/duguex/vasp-cache/issues/19) | I/E/M E2E tests | P0 |
 | [0019](0019-jsonstore-no-auto-migrate-doc.md) | [#20](https://github.com/duguex/vasp-cache/issues/20) | Doc: no JSONStore auto-migrate | P1 |
+
+Labels: `P0` / `P1` / `P2`, plus `identity` / `ops` / `enhancement` / `documentation`.
+
 ## Baseline (done, not open)
 
 - signac black-box package + CLI  
 - Mapping Profile + key_generation  
 - geom_hash default (gen 2) + full spin_defect reingest  
 - real_data tests; MnPS3 archive removed  
+- Single-calc put→fetch tested; **whole-DB I/E/M product still open (#17–#19)**  
