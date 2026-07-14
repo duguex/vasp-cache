@@ -34,21 +34,29 @@ def _detect_formula_task(src_dir: Path) -> tuple[str, str]:
     return formula, name
 
 
-def _outcar_usable(src_dir: Path) -> tuple[bool, float | None]:
-    """Return (converged_or_has_energy, energy)."""
+def _outcar_usable(src_dir: Path) -> tuple[bool, float | None, bool]:
+    """Return (usable, energy, converged).
+
+    Reads only the tail (64 KB) of OUTCAR for bounded memory.
+    """
     path = src_dir / "OUTCAR"
     if not path.is_file():
         alt = src_dir / "output" / "OUTCAR"
         path = alt if alt.is_file() else path
     if not path.is_file():
-        return False, None
-    text = path.read_text(errors="replace")
-    energies = re.findall(r"free\s+energy\s+TOTEN\s*=\s*([-\d.]+)", text)
+        return False, None, False
+    # Tail-read for bounded memory (OUTCAR can be GB)
+    tail_size = 65536  # 64 KB
+    file_size = path.stat().st_size
+    offset = max(0, file_size - tail_size)
+    with open(path, "rb") as f:
+        f.seek(offset)
+        tail = f.read().decode("utf-8", errors="replace")
+    energies = re.findall(r"free\s+energy\s+TOTEN\s*=\s*([-\d.]+)", tail)
     energy = float(energies[-1]) if energies else None
-    converged = "General timing and accounting" in text[-4096:]
-    if converged or energy is not None:
-        return True, energy
-    return False, None
+    converged = "General timing and accounting" in tail
+    usable = converged or energy is not None
+    return usable, energy, converged
 
 
 def put(
@@ -60,7 +68,7 @@ def put(
     include: Iterable[str] = (),
 ) -> str | None:
     calc_dir = Path(calc_dir)
-    usable, energy = _outcar_usable(calc_dir)
+    usable, energy, converged = _outcar_usable(calc_dir)
     if not usable:
         logger.debug("skip put %s: no usable OUTCAR", calc_dir)
         return None
@@ -102,7 +110,7 @@ def put(
     job.doc["formula"] = formula
     job.doc["task_name"] = task_name
     job.doc["total_energy"] = energy
-    job.doc["converged"] = True
+    job.doc["converged"] = converged
     job.doc["source_dir"] = str(calc_dir.resolve())
     job.doc["cached_at"] = time.time()
     job.doc["parsed_by"] = "minimal"

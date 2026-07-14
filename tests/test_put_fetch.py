@@ -4,7 +4,7 @@ from pathlib import Path
 
 from vasp_cache.api import fetch, has, put
 from vasp_cache.paths import _reset_project, override_cache_root
-from conftest import write_complete_calc, write_minimal_inputs
+from conftest import write_complete_calc, write_minimal_inputs, write_minimal_outcar
 
 
 def test_put_fetch_roundtrip(cache_root: Path, tmp_path: Path):
@@ -47,3 +47,20 @@ def test_put_does_not_store_potcar(cache_root: Path, tmp_path: Path):
 
     job = get_project().open_job({"content_hash": ch})
     assert not Path(job.fn("POTCAR")).is_file()
+
+def test_put_unconverged_outcar_stores_with_false_flag(cache_root: Path, tmp_path: Path):
+    _reset_project()
+    calc = write_minimal_inputs(tmp_path / "calc")
+    write_minimal_outcar(calc, energy="-8.3", converged=False)
+    ch = put(calc)
+    assert ch is not None, "put should store even when unconverged if energy present"
+    from vasp_cache.paths import get_project
+    job = get_project().open_job({"content_hash": ch})
+    assert job.doc["total_energy"] == -8.3
+    assert job.doc["converged"] is False
+    # clearing OUTCAR + CONTCAR -> fetch should restore
+    for name in ("OUTCAR", "CONTCAR"):
+        (calc / name).unlink()
+    assert has(calc) is True
+    assert fetch(calc) is True
+    assert (calc / "OUTCAR").is_file()
