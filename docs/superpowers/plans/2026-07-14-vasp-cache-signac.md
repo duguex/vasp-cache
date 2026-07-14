@@ -1030,6 +1030,11 @@ rm -rf "$VASP_CACHE_ROOT"
 # use a real or fixture calc dir
 vasp-cache put /path/to/complete_calc
 vasp-cache status
+vasp-cache has /path/to/input_only_dir
+vasp-cache fetch /path/to/input_only_dir
+vasp-cache mapping show
+```
+
 - [ ] **Step 3: Confirm no legacy paths**
 
 ```bash
