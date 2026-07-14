@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from vasp_cache.mapping import content_hash, load_mapping, mapping_digest
-from vasp_cache.parse import summarize_calc
+from vasp_cache.parse import MAX_LATTICE, summarize_calc
 from vasp_cache.paths import get_project
 
 logger = logging.getLogger(__name__)
@@ -69,9 +69,20 @@ def put(
     include: Iterable[str] = (),
 ) -> str | None:
     calc_dir = Path(calc_dir)
-    usable, energy, converged = _outcar_usable(calc_dir)
+    usable, _, _ = _outcar_usable(calc_dir)
     if not usable:
         logger.debug("skip put %s: no usable OUTCAR", calc_dir)
+        return None
+
+    # Summarize early to check lattice limit; reuse dict later
+    summary = summarize_calc(calc_dir)
+    if MAX_LATTICE is not None and summary.get("max_abc", 0) > MAX_LATTICE:
+        logger.debug(
+            "skip put %s: max_abc %.1f > MAX_LATTICE %.1f",
+            calc_dir,
+            summary["max_abc"],
+            MAX_LATTICE,
+        )
         return None
 
     ch = content_hash(calc_dir)
@@ -107,8 +118,7 @@ def put(
     job.doc["key_generation"] = m["key_generation"]
     job.doc["mapping_digest"] = mapping_digest(calc_dir, mapping=m)
 
-    # rich doc via summarize_calc
-    summary = summarize_calc(calc_dir)
+    # rich doc (reuse pre-computed summary)
     for k, v in summary.items():
         job.doc[k] = v
     job.doc["formula"] = formula

@@ -71,3 +71,29 @@ def cache_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     root.mkdir()
     monkeypatch.setenv("VASP_CACHE_ROOT", str(root))
     return root
+
+
+LARGE_POSCAR = """\
+Large cell
+1.0
+30.0 0 0
+0 30.0 0
+0 0 30.0
+Si
+2
+Direct
+0 0 0
+0.25 0.25 0.25
+"""
+
+
+def write_large_lattice_calc(d: Path, energy: str = "-5.0") -> Path:
+    """Write inputs + OUTCAR with an unrealistically large unit cell (> MAX_LATTICE)."""
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "POSCAR").write_text(LARGE_POSCAR)
+    (d / "CONTCAR").write_text(LARGE_POSCAR)
+    (d / "INCAR").write_text(MINIMAL_INCAR)
+    (d / "KPOINTS").write_text(MINIMAL_KPOINTS)
+    (d / "POTCAR").write_text(MINIMAL_POTCAR)
+    write_minimal_outcar(d, energy=energy, converged=True)
+    return d

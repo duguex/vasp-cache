@@ -5,7 +5,6 @@ Tries ``emmet`` TaskDoc first, falls back to direct regex + pymatgen parsing.
 
 from __future__ import annotations
 
-import json
 import logging
 import re as _re
 from pathlib import Path
@@ -185,9 +184,13 @@ def summarize_calc(src_dir: Path) -> dict[str, Any]:
     from pymatgen.io.vasp.inputs import Incar, Kpoints
     from pymatgen.io.vasp.outputs import Outcar  # noqa: F401 — keep importable
     from pymatgen.core.structure import Structure
-    from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
-
-    text = outcar_path.read_text()
+    # Tail-read OUTCAR for bounded memory (files can be GB)
+    tail_size = 65536  # 64 KB
+    file_size = outcar_path.stat().st_size
+    offset = max(0, file_size - tail_size)
+    with open(outcar_path, "rb") as f:
+        f.seek(offset)
+        text = f.read().decode("utf-8", errors="replace")
     total_energy: float | None = None
     converged = False
     all_e = _re.findall(r"free\s+energy\s+TOTEN\s*=\s*([-\d.]+)", text)
@@ -196,7 +199,6 @@ def summarize_calc(src_dir: Path) -> dict[str, Any]:
     if "General timing and accounting" in text[-4096:]:
         converged = True
 
-    structure_json: str | None = None
     n_sites: int | None = None
     formula_pretty: str | None = None
     space_group: str | None = None
@@ -207,15 +209,17 @@ def summarize_calc(src_dir: Path) -> dict[str, Any]:
         if cand.is_file():
             try:
                 struct = Structure.from_file(str(cand))
-                structure_json = json.dumps(struct.as_dict())
                 n_sites = struct.num_sites
                 formula_pretty = struct.composition.reduced_formula
-                _sga = SpacegroupAnalyzer(struct, symprec=0.1)
-                space_group = _sga.get_space_group_symbol()
                 a, b, c = struct.lattice.abc
-                break
             except Exception:
                 continue
+            try:
+                _sga = SpacegroupAnalyzer(struct, symprec=0.1)
+                space_group = _sga.get_space_group_symbol()
+            except Exception:
+                pass  # space_group stays None
+            break
 
     incar: Incar | None = None
     incar_path = src_dir / "INCAR"

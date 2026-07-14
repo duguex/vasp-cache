@@ -4,7 +4,7 @@ from pathlib import Path
 
 from vasp_cache.api import fetch, has, put
 from vasp_cache.paths import _reset_project, override_cache_root
-from conftest import write_complete_calc, write_minimal_inputs, write_minimal_outcar
+from conftest import write_complete_calc, write_large_lattice_calc, write_minimal_inputs, write_minimal_outcar
 
 
 def test_put_fetch_roundtrip(cache_root: Path, tmp_path: Path):
@@ -64,3 +64,14 @@ def test_put_unconverged_outcar_stores_with_false_flag(cache_root: Path, tmp_pat
     assert has(calc) is True
     assert fetch(calc) is True
     assert (calc / "OUTCAR").is_file()
+
+
+def test_put_skips_large_lattice(cache_root: Path, tmp_path: Path):
+    """put() returns None when max_abc exceeds MAX_LATTICE."""
+    from vasp_cache.paths import _reset_project
+
+    _reset_project()
+    d = write_large_lattice_calc(tmp_path / "big", energy="-10.0")
+    ch = put(d)
+    assert ch is None, "put should skip large-lattice calculation"
+    assert has(d) is False, "should not be cached"
