@@ -22,6 +22,10 @@ Local markdown trackers + GitHub: https://github.com/duguex/vasp-cache/issues
 
 Labels: `P0` / `P1` / `P2`, plus `identity` / `ops` / `enhancement` / `documentation` as appropriate.
 
+| [0016](0016-archive-export-import.md) | [#17](https://github.com/duguex/vasp-cache/issues/17) | Whole-cache archive export/import | P1 |
+| [0017](0017-meta-dump-jsonl.md) | [#18](https://github.com/duguex/vasp-cache/issues/18) | Metadata dump JSONL | P1 |
+| [0018](0018-ie-migrate-e2e-tests.md) | [#19](https://github.com/duguex/vasp-cache/issues/19) | I/E/M E2E tests | P0 |
+| [0019](0019-jsonstore-no-auto-migrate-doc.md) | [#20](https://github.com/duguex/vasp-cache/issues/20) | Doc: no JSONStore auto-migrate | P1 |
 ## Baseline (done, not open)
 
 - signac black-box package + CLI  
