@@ -37,14 +37,14 @@ vasp-cache mapping check
 
 ## Cache root
 
-Default: `~/.vasp_cache`  
+Default: **`/mnt/shared/vasp_cache`** (shared NFS, not under `$HOME`)  
 Override: `VASP_CACHE_ROOT` or `override_cache_root(path)`.
 
 ## Mapping profile
 
-Default: package `mapping.default.yaml` (legacy-compatible critical INCAR keys + `key_generation`).
+Default: package `mapping.default.yaml` (`geom_hash`, `key_generation: 2`).
 
-User overlay: `~/.vasp_cache/mapping.yaml` or `VASP_CACHE_MAPPING`.
+User overlay: `$VASP_CACHE_ROOT/mapping.yaml` or `VASP_CACHE_MAPPING`.
 
 - Soft weights change nearness only.
 - Critical edits require bumping `key_generation`.

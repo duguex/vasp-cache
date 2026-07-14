@@ -42,7 +42,7 @@ def main() -> int:
         "--cache-root",
         type=Path,
         default=None,
-        help="override VASP cache root (default: ~/.vasp_cache)",
+        help="override VASP cache root (default: /mnt/shared/vasp_cache)",
     )
     ap.add_argument(
         "--progress-every",
