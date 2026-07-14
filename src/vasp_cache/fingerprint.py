@@ -43,6 +43,54 @@ def _potcar_fingerprint(src_dir: Path) -> str:
         return "unknown"
 
 
+def _structure_tag(src_dir: Path, method: str | bool = "formula") -> str:
+    """Structure contribution to the hard key.
+
+    Parameters
+    ----------
+    method:
+        ``"formula"`` / ``True`` — composition formula only (legacy, coarse).
+        ``"geom_hash"`` — sha256 of rounded lattice + sites (recommended).
+        ``False`` / ``"false"`` / ``"none"`` — omit (returns ``"nostruct"``).
+    """
+    if method in (False, "false", "none", "off", 0, "0"):
+        return "nostruct"
+
+    from pymatgen.core.structure import Structure
+
+    use_geom = method in ("geom_hash", "geometry", "geom", "structure_hash")
+    struct = None
+    for cand in (src_dir / "CONTCAR", src_dir / "POSCAR"):
+        if cand.is_file():
+            try:
+                struct = Structure.from_file(str(cand))
+                break
+            except Exception:
+                continue
+    if struct is None:
+        return "unknown"
+
+    if not use_geom:
+        # formula / True / anything else → legacy formula tag
+        return struct.composition.formula.replace(" ", "")
+
+    import hashlib
+    import json
+
+    lat = [[round(float(x), 6) for x in row] for row in struct.lattice.matrix.tolist()]
+    sites = sorted(
+        (
+            str(site.specie),
+            round(float(site.frac_coords[0]), 6),
+            round(float(site.frac_coords[1]), 6),
+            round(float(site.frac_coords[2]), 6),
+        )
+        for site in struct
+    )
+    payload = json.dumps({"lattice": lat, "sites": sites}, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
 def content_hash(src_dir: Path) -> str:
     """Deterministic fingerprint of VASP *inputs* in *src_dir*.
 

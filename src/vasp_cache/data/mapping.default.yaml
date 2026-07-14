@@ -1,8 +1,13 @@
-# Default mapping profile — legacy-compatible with vasp_sop content_hash
-key_generation: 1
-description: "Legacy-compatible mapping — hard keys match vasp_sop INCAR fingerprint keys"
+# Default mapping profile — structure geometry in hard key (gen 2)
+key_generation: 2
+description: >
+  Hard key includes structure geometry hash (not formula-only).
+  Bumped from gen 1 to fix false-positive collisions on defects/phonons.
 hard:
-  # INCAR keys that contribute to the hard mapping digest
+  # formula | geom_hash | false
+  structure: geom_hash
+  kpoints: true
+  potcar: true
   incar:
     - ENCUT
     - PREC
@@ -18,15 +23,13 @@ hard:
     - IVDW
     - LASPH
     - METAGGA
-  # Whether structure formula contributes to hard digest
-  structure: true
-  # Whether kpoint grid contributes to hard digest
-  kpoints: true
-  # Whether POTCAR species token contributes to hard digest
-  potcar: true
+    # hybrid / spin — reduce false merges
+    - LHFCALC
+    - HFSCREEN
+    - ISPIN
+    - LSORBIT
 
 soft:
-  # INCAR keys that only affect soft vector (not hard digest)
   incar:
     - NSW
     - NELM

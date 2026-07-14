@@ -13,7 +13,11 @@ import math
 from pathlib import Path
 from typing import Any
 
-from vasp_cache.fingerprint import _incar_fingerprint, _potcar_fingerprint
+from vasp_cache.fingerprint import (
+    _incar_fingerprint,
+    _potcar_fingerprint,
+    _structure_tag,
+)
 
 # ---------------------------------------------------------------------------
 # Loading
@@ -132,24 +136,22 @@ def _compute_hard_body(
     Structure, kpoints, INCAR hard keys, and POTCAR are each conditionally
     included according to the mapping profile.
     """
-    from pymatgen.core.structure import Structure
     from pymatgen.io.vasp.inputs import Kpoints
 
     src_dir = Path(src_dir)
     hard = mapping.get("hard", {})
 
     # --- structure tag ---
-    struct_tag = "unknown"
-    if hard.get("structure", True):
-        for cand in (src_dir / "CONTCAR", src_dir / "POSCAR"):
-            if cand.is_file():
-                try:
-                    struct = Structure.from_file(str(cand))
-                    struct_tag = struct.composition.formula.replace(" ", "")
-                    break
-                except Exception:
-                    continue
-
+    # hard.structure: geom_hash | formula | true | false
+    struct_cfg = hard.get("structure", True)
+    if struct_cfg in (False, "false", "none", "off", 0, "0"):
+        struct_tag = "nostruct"
+    else:
+        method = "geom_hash" if struct_cfg is True else str(struct_cfg)
+        # bare true kept as formula for backward custom YAMLs that set structure: true
+        if struct_cfg is True:
+            method = "formula"
+        struct_tag = _structure_tag(src_dir, method=method)
     # --- kpoints tag ---
     kpoints_tag = "nokpt"
     if hard.get("kpoints", True):
