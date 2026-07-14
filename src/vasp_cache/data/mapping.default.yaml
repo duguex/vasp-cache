@@ -1,13 +1,14 @@
-# Default mapping profile — structure geometry in hard key (gen 2)
-key_generation: 2
+# Default mapping profile — structure geometry in hard key (gen 3)
+key_generation: 3
 description: >
   Hard key includes structure geometry hash (not formula-only).
-  Bumped from gen 1 to fix false-positive collisions on defects/phonons.
+  Gen 3: POTCAR is NOT part of identity (cache never stores POTCAR;
+  missing pot file is fine — has/fetch without POTCAR works).
 hard:
   # formula | geom_hash | false
   structure: geom_hash
   kpoints: true
-  potcar: true
+  potcar: false
   incar:
     - ENCUT
     - PREC

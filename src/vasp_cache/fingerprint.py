@@ -31,10 +31,14 @@ def _incar_fingerprint(src_dir: Path, keys: tuple[str, ...] = _INCAR_FINGERPRINT
 
 
 def _potcar_fingerprint(src_dir: Path) -> str:
-    """Extract POTCAR pseudopotential species tokens."""
+    """Extract POTCAR pseudopotential species tokens.
+
+    Missing file → ``default`` (same convention as empty INCAR hard keys).
+    Callers that disable hard.potcar never use this value.
+    """
     potcar_path = src_dir / "POTCAR"
     if not potcar_path.is_file():
-        return "nopot"
+        return "default"
     try:
         text = potcar_path.read_text()
         pp_ids = re.findall(r"PAW_\w+\s+(\S+)", text)

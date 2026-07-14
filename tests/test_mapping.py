@@ -22,7 +22,7 @@ class TestLoadMapping:
 
     def test_default_key_generation(self):
         profile = load_mapping()
-        assert profile["key_generation"] == 2
+        assert profile["key_generation"] == 3
 
     def test_default_has_hard_section(self):
         profile = load_mapping()
@@ -46,9 +46,9 @@ class TestLoadMapping:
 
     def test_load_custom_mapping(self, tmp_path: Path):
         custom = tmp_path / "custom.yaml"
-        custom.write_text("key_generation: 3\nhard:\n  incar: [ENCUT]\n  structure: false\n  kpoints: false\n  potcar: false\nsoft:\n  incar: []\n")
+        custom.write_text("key_generation: 4\nhard:\n  incar: [ENCUT]\n  structure: false\n  kpoints: false\n  potcar: false\nsoft:\n  incar: []\n")
         profile = load_mapping(custom)
-        assert profile["key_generation"] == 3
+        assert profile["key_generation"] == 4
         assert profile["hard"]["incar"] == ["ENCUT"]
 
 
@@ -62,7 +62,7 @@ class TestMappingDigest:
     def test_digest_includes_generation(self, tmp_path: Path):
         d = write_minimal_inputs(tmp_path / "a")
         h = mapping_digest(d)
-        assert h.startswith("2:")
+        assert h.startswith("3:")
 
     def test_kpoints_change_flips_digest(self, tmp_path: Path):
         d = write_minimal_inputs(tmp_path / "a")
@@ -103,7 +103,7 @@ class TestMappingDigest:
         """Custom mapping with only structure + ENCUT in hard section."""
         d = write_minimal_inputs(tmp_path / "a")
         custom_map = {
-            "key_generation": 3,
+            "key_generation": 4,
             "hard": {
                 "incar": ["ENCUT"],
                 "structure": "formula",
@@ -113,7 +113,7 @@ class TestMappingDigest:
             "soft": {"incar": []},
         }
         h = mapping_digest(d, mapping=custom_map)
-        assert h.startswith("3:")
+        assert h.startswith("4:")
         # Only structure + ENCUT contributed, no kpoints or potcar
         assert "444" not in h  # kpoints grid should not appear
 
@@ -132,7 +132,7 @@ class TestContentHash:
         h = content_hash(d)
         assert isinstance(h, str)
         # Default mapping means generation 1 prefix
-        assert h.startswith("2:")
+        assert h.startswith("3:")
 
     def test_content_hash_from_mapping_differs_from_fingerprint(self, tmp_path: Path):
         """With default mapping, content_hash includes gen prefix vs plain fingerprint."""
@@ -143,7 +143,7 @@ class TestContentHash:
         fp = fp_hash(d)
         # Package hash includes gen prefix
         # gen2+geom_hash: prefix and body differ from legacy formula fingerprint
-        assert pkg.startswith("2:")
+        assert pkg.startswith("3:")
         assert pkg[2:] != fp
 
 
@@ -217,7 +217,7 @@ class TestKeyGenerationPolicy:
     def test_soft_only_change_ok_without_bump(self, tmp_path: Path):
         """Changing only soft.incar does NOT require a generation bump."""
         custom = {
-            "key_generation": 2,
+            "key_generation": 3,
             "hard": {
                 "incar": [
                     "ENCUT", "PREC", "ISMEAR", "SIGMA", "ISIF",
@@ -227,13 +227,13 @@ class TestKeyGenerationPolicy:
                 ],
                 "structure": "geom_hash",
                 "kpoints": True,
-                "potcar": True,
+                "potcar": False,
             },
             "soft": {"incar": ["NSW", "NELM", "EDIFF"]},  # soft-only delta vs default
         }
         d = write_minimal_inputs(tmp_path / "a")
         h = content_hash(d, mapping=custom)
-        assert h.startswith("2:")
+        assert h.startswith("3:")
 
     def test_critical_change_same_generation_raises(self):
         """Critical section differs but key_generation is NOT bumped."""
@@ -253,7 +253,7 @@ class TestKeyGenerationPolicy:
     def test_critical_change_with_bumped_generation_ok(self):
         """Critical section differs AND generation is bumped — allowed."""
         custom = {
-            "key_generation": 3,
+            "key_generation": 4,
             "hard": {
                 "incar": ["ENCUT"],
                 "structure": False,
@@ -263,7 +263,7 @@ class TestKeyGenerationPolicy:
             "soft": {"incar": []},
         }
         h = content_hash("/nonexistent", mapping=custom)
-        assert h.startswith("3:")
+        assert h.startswith("4:")
 
     def test_custom_yaml_without_bump_raises(self, tmp_path: Path):
         """Loading a custom YAML file with critical changes but no bump."""
@@ -286,10 +286,10 @@ class TestKeyGenerationPolicy:
             "LHFCALC", "HFSCREEN", "ISPIN", "LSORBIT",
         ]
         custom = tmp_path / "same.yaml"
-        lines = ["key_generation: 2", "hard:"]
+        lines = ["key_generation: 3", "hard:"]
         lines.append("  structure: geom_hash")
         lines.append("  kpoints: true")
-        lines.append("  potcar: true")
+        lines.append("  potcar: false")
         lines.append("  incar:")
         for k in default:
             lines.append(f"    - {k}")
@@ -297,7 +297,7 @@ class TestKeyGenerationPolicy:
         lines.append("  incar: [NSW, NELM]")
         custom.write_text("\n".join(lines) + "\n")
         profile = load_mapping(custom)
-        assert profile["key_generation"] == 2
+        assert profile["key_generation"] == 3
 
 
 class TestGeomHash:
@@ -320,4 +320,4 @@ class TestGeomHash:
         write(b, "0.30 0.30 0.30")
         ha, hb = mapping_digest(a), mapping_digest(b)
         assert ha != hb
-        assert ha.startswith("2:")
+        assert ha.startswith("3:")

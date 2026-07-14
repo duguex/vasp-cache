@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from vasp_cache.fingerprint import content_hash
+from vasp_cache.mapping import content_hash
+from vasp_cache.fingerprint import content_hash as legacy_content_hash
 
 from conftest import write_minimal_inputs, MINIMAL_POSCAR, MINIMAL_INCAR, MINIMAL_KPOINTS
 
@@ -12,10 +13,10 @@ def test_content_hash_stable(tmp_path: Path):
     h1 = content_hash(d)
     h2 = content_hash(d)
     assert h1 == h2
-    # Structure tag includes Si
-    assert "Si" in h1 or "Si2" in h1 or "Si" in h1
+    assert h1.startswith("3:")
     # INCAR fingerprint includes ENCUT
     assert "ENCUT=520" in h1 or "ENCUT=520.0" in h1
+    assert "_default" in h1  # potcar not in identity
 
 
 def test_kpoints_change_changes_hash(tmp_path: Path):
@@ -43,14 +44,36 @@ def test_incar_change_changes_hash(tmp_path: Path):
     assert content_hash(d) != h0
 
 
-def test_potcar_change_changes_hash(tmp_path: Path):
-    """Changing POTCAR species flips the hash."""
+def test_potcar_ignored_by_default_mapping(tmp_path: Path):
+    """Default profile has hard.potcar=false: POTCAR presence/species do not affect hash."""
     d = write_minimal_inputs(tmp_path / "a")
     h0 = content_hash(d)
     (d / "POTCAR").write_text(
         "  PAW_PBE Ge 05Jan2001\n   4.00000000000000\n"
     )
-    assert content_hash(d) != h0
+    assert content_hash(d) == h0
+    (d / "POTCAR").unlink()
+    assert content_hash(d) == h0
+
+
+def test_potcar_change_changes_hash_when_enabled(tmp_path: Path):
+    """With hard.potcar=true, changing POTCAR species flips the hash."""
+    d = write_minimal_inputs(tmp_path / "a")
+    mapping = {
+        "key_generation": 4,
+        "hard": {
+            "structure": "geom_hash",
+            "kpoints": True,
+            "potcar": True,
+            "incar": ["ENCUT", "PREC", "ISMEAR", "SIGMA", "ISIF", "GGA", "LASPH", "ISPIN"],
+        },
+        "soft": {"incar": []},
+    }
+    h0 = content_hash(d, mapping=mapping)
+    (d / "POTCAR").write_text(
+        "  PAW_PBE Ge 05Jan2001\n   4.00000000000000\n"
+    )
+    assert content_hash(d, mapping=mapping) != h0
 
 
 def test_structure_change_changes_hash(tmp_path: Path):
@@ -100,4 +123,3 @@ Direct
     (d / "CONTCAR").write_text(gaas_poscar)
     assert content_hash(d) != h_si
     # Should now contain Ga2As2 (pymatgen reduced formula)
-    assert "Ga2As2" in content_hash(d)

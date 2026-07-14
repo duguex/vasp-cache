@@ -179,9 +179,11 @@ def _compute_hard_body(
     )
 
     # --- POTCAR fingerprint ---
-    potcar_fp = "nopot"
     if hard.get("potcar", True):
         potcar_fp = _potcar_fingerprint(src_dir)
+    else:
+        # Not part of identity: fixed token so missing POTCAR is irrelevant
+        potcar_fp = "default"
 
     return f"{struct_tag}_{kpoints_tag}_{incar_fp}_{potcar_fp}"
 
