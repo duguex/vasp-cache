@@ -1,6 +1,6 @@
 # vasp-cache Design: signac Backend + Black-Box I/O
 
-> Date: 2026-07-14  
+> Date: 2026-07-14 (amended: Mapping Profile)  
 > Status: approved for planning (user decisions locked)  
 > Repo: `vasp-cache` (`~/vasp_cache`)
 
@@ -21,7 +21,7 @@ One sentence: **compute once; later, inputs → outputs without re-running VASP.
 | Backend | **signac** (dependency, not reimplemented CAS) |
 | Primary I/O | Black box: `put(full calc)` / `fetch(inputs → write outputs)` |
 | Storage payload | **Original files** in signac job workspace (not parsed JSON blobs as sole payload) |
-| Identity | `content_hash` of inputs (same fingerprint semantics as current `vasp_sop.core.cache._content_hash`) |
+| Identity | **Mapping Profile** → hard `content_hash` (tunable critical fields + `key_generation`); default profile starts from legacy sop fingerprint keys and is **not** sacred |
 | Metadata | signac `job.document` (searchable) |
 | Default files stored | `OUTCAR`, `CONTCAR` (or final structure), `vasprun.xml` if present; default also store `INCAR`/`POSCAR`/`KPOINTS` for audit |
 | POTCAR | **Not stored by default** (size + license) |
@@ -38,8 +38,10 @@ One sentence: **compute once; later, inputs → outputs without re-running VASP.
 - Formation-energy analysis  
 - INCAR generation  
 - NFS multi-writer strong consistency guarantees  
-- Changing `content_hash` formula  
+- Neural / learned embedding models for keys  
+- Soft-distance **retrieval API** as a v1 deliverable (config + distance helper OK; ANN/search UI later)  
 - Compatibility layer for legacy maggma JSONStore cache  
+- Silent change of hard-key semantics without bumping `key_generation`
 
 ## 3. Survey summary (why this shape)
 
@@ -80,7 +82,10 @@ Package layout (implementation target):
 vasp_cache/
   __init__.py      # public API re-exports
   paths.py         # CACHE_ROOT, override_cache_root, get_project()
-  fingerprint.py   # content_hash, incar/potcar fingerprints
+  mapping.py       # load/merge Mapping Profile; mapping_digest
+  fingerprint.py   # content_hash(dir, mapping=None); soft feature vector helpers
+  data/
+    mapping.default.yaml
   parse.py         # optional summary extraction (TaskDoc + regex)
   api.py           # put, has, fetch, get_meta, query, list_entries, stats
   cli.py           # vasp-cache CLI
@@ -180,6 +185,9 @@ Rationale: preserves existing uniqueness semantics; avoids accidental job split 
   "source_dir": str,        # absolute path at put time (informational only)
   "parsed_by": str,         # TaskDoc | regex | fallback
   "cached_at": float,       # unix time
+  "profile_id": str,
+  "key_generation": int,
+  "mapping_digest": str,    # hash of resolved critical mapping
 }
 ```
 
@@ -195,20 +203,145 @@ project.find_jobs({
 
 Public `query()` maps familiar kwargs (`formula`, `functional`→tags regex, `bandgap_min`, …) onto `find_jobs` filters.
 
-## 7. Fingerprint (`content_hash`)
+## 7. Identity: Mapping Profile + hard `content_hash`
 
-Port from `vasp_sop.core.cache` without semantic change:
+Keys are **not** a fixed hard-coded string forever. They come from a **Mapping Profile**:
+a tunable rule set that maps VASP inputs → (1) hard cache key, (2) optional soft features.
 
+No neural embedding models. Defaults may be wrong for a lab; **adjustment is first-class**.
+
+### 7.1 Two layers
+
+| Layer | Role | Adjust freely? |
+|-------|------|----------------|
+| **Hard key** | `put` / `has` / `fetch` identity; must not false-positive | Change only with **`key_generation` bump** (old hits stop matching) |
+| **Soft map** | Tunable “nearness” features/weights (HSE far, NSW close) | Anytime; does **not** change stored keys |
+
+Conceptual model:
+
+```text
+inputs --φ--> features
+  critical features + key_generation --> content_hash  (exact KV key)
+  soft features + weights           --> optional distance d(·,·)
 ```
-content_hash = structure_tag + "_" + kpoints_tag + "_" + incar_fp + "_" + potcar_fp
+
+### 7.2 Profile sources (merge order, later wins)
+
+1. Built-in package default: `vasp_cache/data/mapping.default.yaml`
+2. User/lab file: `$VASP_CACHE_MAPPING` or `~/.vasp_cache/mapping.yaml`
+3. API: `content_hash(dir, mapping=...)` / `put(..., mapping=...)`
+
+### 7.3 Profile schema (v1)
+
+```yaml
+version: 1
+profile_id: "default"
+key_generation: 1
+
+critical:
+  structure:
+    method: formula          # v1 default (legacy-compatible); geom_hash recommended later
+  kpoints:
+    method: grid             # grid | gamma | band-structure | nokpt (legacy behavior)
+  potcar:
+    method: species_token    # legacy PAW_ token list
+  incar:
+    keys:
+      - ENCUT
+      - PREC
+      - ISMEAR
+      - SIGMA
+      - ISIF
+      - LDAU
+      - LDAUTYPE
+      - LDAUU
+      - LDAUJ
+      - LDAUL
+      - GGA
+      - IVDW
+      - LASPH
+      - METAGGA
+    # labs SHOULD add for safety, e.g.:
+    # - LHFCALC
+    # - HFSCREEN
+    # - ISPIN
+
+soft:
+  NSW:  {scale: 100, weight: 1.0}
+  NELM: {scale: 50, weight: 0.5}
+  # optional: map HSE-like flags for soft distance only
+  # LHFCALC: {kind: cat, weight: 1.0e6}
+
+buckets: {}
+# example: ENCUT: 10
 ```
 
-- structure: CONTCAR/POSCAR composition formula (spaces removed)  
-- kpoints: grid string / `gamma` / `band-structure` / `nokpt`  
-- incar keys: ENCUT, PREC, ISMEAR, SIGMA, ISIF, LDAU*, GGA, IVDW, LASPH, METAGGA  
-- potcar: species token list from POTCAR  
+### 7.4 Hard key construction
 
-Public: `content_hash(path) -> str`.
+```text
+content_hash = H(
+  key_generation,
+  canonicalize(critical features per profile)
+)
+```
+
+v1 **default critical extraction** mirrors legacy sop string form for continuity when
+`structure.method=formula` and the default incar key list is used:
+
+```text
+legacy_body = structure_tag + "_" + kpoints_tag + "_" + incar_fp + "_" + potcar_fp
+content_hash = f"{key_generation}:{legacy_body}"   # or sha256 of the same parts
+```
+
+Implementer may use stable `sha256` of a canonical JSON of critical parts **as long as**
+default profile + generation produce **documented, tested** stability. Prefer including
+`key_generation` in the hashed payload.
+
+Public API:
+
+```python
+load_mapping(path: Path | None = None) -> MappingProfile
+content_hash(src_dir: Path, mapping: MappingProfile | None = None) -> str
+mapping_digest(mapping: MappingProfile) -> str
+soft_vector(src_dir: Path, mapping: MappingProfile | None = None) -> dict[str, float]
+soft_distance(a: dict, b: dict, mapping: MappingProfile | None = None) -> float
+```
+
+### 7.5 Adjustment rules (required behavior)
+
+| Change | Effect |
+|--------|--------|
+| Edit **soft** scales/weights only | Existing cache hits unchanged; soft distances change |
+| Add/remove **critical** INCAR keys, change structure/kpoints/potcar method, change buckets | Tool **must bump `key_generation`** (or refuse until user bumps); new puts use new keys |
+| Change `profile_id` alone | Does not change hash unless critical digest changes; still store on job.doc |
+
+CLI (v1):
+
+```text
+vasp-cache mapping show
+vasp-cache mapping check      # golden pairs: HSE differs hard; NSW-only same hard if soft-only
+```
+
+Optional later: `mapping set` mutators. v1 may be edit-yaml + show/check.
+
+### 7.6 Safety
+
+- Every `put` writes `profile_id`, `key_generation`, `mapping_digest` on `job.doc`
+- Optional `fetch(..., strict_mapping=True)`: refuse if current digest ≠ stored digest
+- Defaults **conservative bias** preferred when extending critical set (more recompute, fewer wrong hits)
+- **No** auto-ML tuning of critical fields at runtime
+
+### 7.7 Soft distance (v1 minimal)
+
+- Implement `soft_vector` / `soft_distance` from profile weights (weighted L2 / categorical penalties)
+- Example intent: HSE on vs off ≫ NSW 99 vs 100 when those are soft-mapped with large vs small weight
+- **Not** required: similarity search CLI, faiss, or fetch-by-neighbor
+
+### 7.8 Discrimination goals
+
+- Hard key: same physical critical inputs → same key; any critical difference → different key
+- Prefer false negatives over false positives on hard hits
+- Soft map: tunable nearness for human/tooling; never sole authority for file restore
 
 ## 8. Summary parsing
 
@@ -234,6 +367,9 @@ from vasp_cache import (
     list_entries,
     stats,
     content_hash,
+    load_mapping,
+    soft_vector,
+    soft_distance,
     override_cache_root,
 )
 ```
@@ -268,6 +404,8 @@ vasp-cache has <dir>
 vasp-cache query --formula GaN [--functional HSE] ...
 vasp-cache status
 vasp-cache content-hash <dir>
+vasp-cache mapping show
+vasp-cache mapping check
 ```
 
 No `migrate-jsonstore` in v1 (old version abandoned). Operators who need history re-`put` from original calculation directories.
@@ -277,23 +415,30 @@ No `migrate-jsonstore` in v1 (old version abandoned). Operators who need history
 | Mechanism | Effect |
 |-----------|--------|
 | `VASP_CACHE_ROOT` | project root |
+| `VASP_CACHE_MAPPING` | path to Mapping Profile YAML |
+| `~/.vasp_cache/mapping.yaml` | user/lab profile overlay |
 | `override_cache_root(path)` | tests / temporary roots |
 | `put(..., store_inputs=True)` | toggle input file archival |
 | `put(..., include=())` | extra filenames to copy |
+| `put/has/fetch/content_hash(..., mapping=)` | explicit profile |
 | env or const `MAX_LATTICE` | skip huge cells (default 25.0, `None` disables) |
 
 ## 12. Testing strategy
 
 | Area | Cases |
 |------|-------|
-| fingerprint | stable hash; kpoints/incar/potcar change flips hash |
+| fingerprint | stable hash under fixed profile; kpoints/incar/potcar change flips hash |
+| mapping soft | soft-only field change does not flip hard hash |
+| mapping critical | critical change + generation bump flips hash |
+| mapping check | golden pairs (HSE vs NSW intent) |
 | put/fetch roundtrip | temp dirs; fetch restores OUTCAR bytes |
+| put mapping audit | doc has profile_id, key_generation, mapping_digest |
 | idempotent put | second put same hash succeeds |
 | has false | missing job |
 | query | formula / bandgap filters on doc |
 | override_cache_root | isolation |
 | no vasp_sop import | package import graph |
-| CLI smoke | put + fetch + status |
+| CLI smoke | put + fetch + status + mapping show |
 
 Fixtures: minimal fake OUTCAR/INCAR/POSCAR/KPOINTS/POTCAR text files (no real VASP binary).
 
@@ -316,21 +461,28 @@ JobStore / `jobs.db` paths currently under `~/.vasp_sop` stay; only **results ca
 | Concurrent put same hash | Idempotent put; document limitation |
 | signac major versions | Pin `signac>=2.0,<3` |
 | Re-ingest cost after abandoning old store | One-time `put -r` from known trees; acceptable per “舍弃旧版” |
+| Default mapping too coarse/fine | Mapping Profile + key_generation; labs edit YAML |
+| Silent critical edits | Force generation bump; store mapping_digest |
 
 ## 15. Implementation order
 
 1. Package scaffold + signac project bootstrap  
-2. fingerprint + put/has/fetch + tests  
-3. parse → job.doc + query/list/stats  
-4. CLI  
-5. vasp-sop adapter + dependency wiring  
-6. Docs (README/DESIGN update to match this spec)  
+2. Mapping Profile load/merge + default YAML  
+3. fingerprint from profile + soft_vector/distance + tests  
+4. put/has/fetch + mapping audit fields on doc  
+5. parse → richer job.doc + query/list/stats  
+6. CLI (incl. mapping show/check)  
+7. vasp-sop adapter + dependency wiring  
+8. Docs (README/DESIGN update to match this spec)  
 
 ## 16. Success criteria
 
 - [ ] `pip install -e .` provides `vasp_cache` and `vasp-cache` CLI  
 - [ ] Roundtrip: put complete calc → wipe OUTCAR → fetch restores OUTCAR content  
-- [ ] `content_hash` matches prior sop semantics on sample inputs  
+- [ ] Default profile hard hash is stable and documented (legacy-compatible body + generation)  
+- [ ] Soft-only mapping edits do not change `content_hash`; critical edits require/bump `key_generation`  
+- [ ] `put` records `profile_id`, `key_generation`, `mapping_digest` on job.doc  
+- [ ] `vasp-cache mapping show` / `mapping check` work  
 - [ ] vasp-sop tests that use cache pass against adapter (with overrides)  
 - [ ] No import of `vasp_sop` from `vasp_cache`  
 - [ ] No code path reads legacy `meta.json`/`blobs.json`  

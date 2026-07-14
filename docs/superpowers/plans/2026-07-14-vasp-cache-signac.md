@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship an installable `vasp-cache` package that uses signac to store original VASP output files keyed by input `content_hash`, with black-box `put`/`fetch` and secondary metadata query; cut vasp-sop over to this package and abandon legacy JSONStore cache.
+**Goal:** Ship an installable `vasp-cache` package that uses signac to store original VASP output files keyed by Mapping-Profile-driven `content_hash`, with black-box `put`/`fetch`, tunable hard/soft mapping, and secondary metadata query; cut vasp-sop over to this package and abandon legacy JSONStore cache.
 
-**Architecture:** One global signac Project at `~/.vasp_cache` (overridable). State point is `{"content_hash": ...}` only. Job workspace holds OUTCAR/CONTCAR/…; `job.document` holds searchable summary. `vasp_cache` never imports `vasp_sop`. sop keeps a thin adapter and MP path constants.
+**Architecture:** One global signac Project at `~/.vasp_cache` (overridable). Hard identity is `content_hash` from a **Mapping Profile** (`statepoint = {"content_hash": ...}`). Job workspace holds OUTCAR/CONTCAR/…; `job.document` holds searchable summary + mapping audit fields. Soft map is config-only distance helpers (no ML). `vasp_cache` never imports `vasp_sop`.
 
 **Tech Stack:** Python ≥3.10, signac ≥2,<3, pymatgen, emmet-core, pytest, setuptools.
 
@@ -14,7 +14,9 @@
 
 - No runtime read of `~/.vasp_sop/meta.json` or `blobs.json`
 - No `vasp_sop` imports inside `vasp_cache`
-- Fingerprint semantics must match current `vasp_sop.core.cache._content_hash` / INCAR keys
+- Hard keys come from Mapping Profile; **default** profile uses legacy sop-like critical fields + `key_generation`
+- Soft-only profile edits must not change hard `content_hash`
+- Critical profile edits must bump `key_generation` (or refuse)
 - Default do not store POTCAR / WAVECAR / CHGCAR
 - TDD: failing test before implementation for each behavior
 - Prefer small commits after each green task
@@ -29,13 +31,17 @@ vasp_cache/                          # repo root (~/vasp_cache)
   src/vasp_cache/
     __init__.py
     paths.py
+    mapping.py
     fingerprint.py
     parse.py
     api.py
     cli.py
+    data/
+      mapping.default.yaml
   tests/
     conftest.py
     test_fingerprint.py
+    test_mapping.py
     test_paths.py
     test_put_fetch.py
     test_parse.py
@@ -201,15 +207,24 @@ git commit -m "chore: scaffold vasp-cache package with signac deps"
 
 ---
 
-### Task 2: Fingerprint module
+### Task 2: Mapping Profile + fingerprint
 
 **Files:**
+- Create: `src/vasp_cache/data/mapping.default.yaml`
+- Create: `src/vasp_cache/mapping.py`
 - Create: `src/vasp_cache/fingerprint.py`
+- Create: `tests/test_mapping.py`
 - Create: `tests/test_fingerprint.py`
 
 **Interfaces:**
-- Produces: `content_hash(src_dir: Path) -> str`, plus module-private helpers if needed
-- Consumes: pymatgen Structure/Incar/Kpoints
+- Produces: `load_mapping()`, `mapping_digest()`, `content_hash(src_dir, mapping=None)`, `soft_vector()`, `soft_distance()`
+- Consumes: MappingProfile; pymatgen Structure/Incar/Kpoints
+- Optional dep: `pyyaml>=6` if YAML load is used (add to pyproject.toml)
+
+Default profile must encode legacy-compatible critical fields (sop INCAR key list, formula structure tag, grid kpoints, species_token potcar) plus `key_generation: 1`. Soft section includes NSW/NELM scales.
+
+Hard hash form: `f"{key_generation}:{legacy_body}"` under default profile.
+Soft-only edits must not change hard hash; critical edits change digest and require generation bump policy in mapping helpers.
 
 - [ ] **Step 1: Write failing tests**
 
@@ -674,6 +689,10 @@ def put(
     job.doc["source_dir"] = str(calc_dir.resolve())
     job.doc["cached_at"] = time.time()
     job.doc["parsed_by"] = "minimal"
+    m = load_mapping()
+    job.doc["profile_id"] = m.profile_id
+    job.doc["key_generation"] = m.key_generation
+    job.doc["mapping_digest"] = mapping_digest(m)
     return ch
 
 
@@ -1011,10 +1030,6 @@ rm -rf "$VASP_CACHE_ROOT"
 # use a real or fixture calc dir
 vasp-cache put /path/to/complete_calc
 vasp-cache status
-vasp-cache has /path/to/input_only_dir
-vasp-cache fetch /path/to/input_only_dir
-```
-
 - [ ] **Step 3: Confirm no legacy paths**
 
 ```bash
@@ -1032,12 +1047,12 @@ Expected: no results-cache usage of maggma JSONStore
 | Spec item | Task |
 |-----------|------|
 | signac project root / override | Task 3 |
-| content_hash semantics | Task 2 |
-| put file payload | Task 4 |
+| Mapping Profile + content_hash + soft | Task 2 |
+| put file payload + mapping audit | Task 4 |
 | fetch black box | Task 4 |
 | job.doc summary | Task 5 |
 | query secondary | Task 6 |
-| CLI | Task 7 |
+| CLI (incl. mapping show/check) | Task 7 |
 | abandon JSONStore | Task 9–10 |
 | sop adapter | Task 9 |
 | no vasp_sop import in package | Tasks 1–7 |
