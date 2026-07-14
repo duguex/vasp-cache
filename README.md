@@ -33,6 +33,8 @@ vasp-cache status
 vasp-cache content-hash <dir>
 vasp-cache mapping show
 vasp-cache mapping check
+vasp-cache export-archive /path/to/cache.tgz [--root DIR]
+vasp-cache import-archive /path/to/cache.tgz [--root DIR] [--overwrite]
 ```
 
 ## Cache root

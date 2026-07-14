@@ -11,6 +11,7 @@ from vasp_cache.api import (
     query,
     stats,
 )
+from vasp_cache.archive import export_archive, import_archive
 from vasp_cache.mapping import (
     content_hash,
     load_mapping,
@@ -25,9 +26,11 @@ __version__ = "0.1.0"
 __all__ = [
     "__version__",
     "content_hash",
+    "export_archive",
     "fetch",
     "get_meta",
     "has",
+    "import_archive",
     "list_entries",
     "load_mapping",
     "mapping_digest",

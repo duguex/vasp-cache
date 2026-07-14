@@ -37,6 +37,19 @@ def main(argv: list[str] | None = None) -> int:
     map_sub.add_parser("show", help="Show resolved mapping profile")
     map_sub.add_parser("check", help="Run golden-pair mapping checks")
 
+    p_exp = sub.add_parser("export-archive", help="Export whole cache to tar.gz")
+    p_exp.add_argument("dest", type=Path, help="output .tar.gz path")
+    p_exp.add_argument("--root", type=Path, default=None, help="cache root to export")
+
+    p_imp = sub.add_parser("import-archive", help="Import whole cache from tar.gz")
+    p_imp.add_argument("archive", type=Path, help="input .tar.gz path")
+    p_imp.add_argument("--root", type=Path, default=None, help="destination cache root")
+    p_imp.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="replace existing destination cache contents",
+    )
+
     args = parser.parse_args(argv)
 
     if args.cmd == "put":
@@ -103,12 +116,11 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "mapping":
-        from vasp_cache.mapping import load_mapping, mapping_digest
+        from vasp_cache.mapping import load_mapping
 
         if args.map_cmd == "show":
             m = load_mapping()
             print(json.dumps(m if isinstance(m, dict) else getattr(m, "__dict__", str(m)), indent=2, default=str))
-            # also print digest of default critical if helper needs a dir-less path
             try:
                 print("profile ok", file=sys.stderr)
             except Exception as exc:
@@ -116,10 +128,23 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             return 0
         if args.map_cmd == "check":
-            # Minimal golden intent: load default without error
             load_mapping()
             print("mapping check: default profile loads OK")
             return 0
+
+    if args.cmd == "export-archive":
+        from vasp_cache.archive import export_archive
+
+        path = export_archive(args.dest, root=args.root)
+        print(path)
+        return 0
+
+    if args.cmd == "import-archive":
+        from vasp_cache.archive import import_archive
+
+        man = import_archive(args.archive, root=args.root, overwrite=args.overwrite)
+        print(json.dumps(man, indent=2, default=str))
+        return 0
 
     return 2
 
