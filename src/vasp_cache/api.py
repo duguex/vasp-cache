@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from typing import Any, Iterable
 
-from vasp_cache.mapping import content_hash, load_mapping, mapping_digest
+from vasp_cache.mapping import content_hash as compute_content_hash, load_mapping, mapping_digest
 from vasp_cache.parse import MAX_LATTICE, summarize_calc
 from vasp_cache.paths import get_project
 
@@ -85,7 +85,7 @@ def put(
         )
         return None
 
-    ch = content_hash(calc_dir)
+    ch = compute_content_hash(calc_dir)
     f, tn = _detect_formula_task(calc_dir)
     formula = formula or f
     task_name = task_name or tn
@@ -130,7 +130,7 @@ def put(
 
 def has(input_dir: Path | str) -> bool:
     input_dir = Path(input_dir)
-    ch = content_hash(input_dir)
+    ch = compute_content_hash(input_dir)
     project = get_project()
     job = project.open_job({"content_hash": ch})
     if job not in project:
@@ -142,7 +142,7 @@ def fetch(input_dir: Path | str) -> bool:
     input_dir = Path(input_dir)
     if not has(input_dir):
         return False
-    ch = content_hash(input_dir)
+    ch = compute_content_hash(input_dir)
     job = get_project().open_job({"content_hash": ch})
     restored = False
     for name in _OUTPUT_NAMES:
@@ -152,3 +152,108 @@ def fetch(input_dir: Path | str) -> bool:
             if name == "OUTCAR":
                 restored = True
     return restored
+
+
+def _job_row(job) -> dict[str, Any]:
+    row = dict(job.doc)
+    row["content_hash"] = job.sp.get("content_hash")
+    return row
+
+
+def query(
+    formula: str | None = None,
+    functional: str | None = None,
+    calc_type: str | None = None,
+    tags_contains: str | None = None,
+    bandgap_min: float | None = None,
+    lattice_max: float | None = None,
+    converged_only: bool = True,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    """Semantic query over job.document fields."""
+    project = get_project()
+    filt: dict[str, Any] = {}
+    if formula:
+        filt["doc.formula"] = formula
+    if calc_type:
+        filt["doc.calc_type"] = calc_type
+    if bandgap_min is not None:
+        filt["doc.bandgap"] = {"$gte": bandgap_min}
+    if lattice_max is not None:
+        filt["doc.max_abc"] = {"$lte": lattice_max}
+    if converged_only:
+        filt["doc.converged"] = True
+
+    rows: list[dict[str, Any]] = []
+    for job in project.find_jobs(filt if filt else None):
+        row = _job_row(job)
+        tags = str(row.get("tags") or "")
+        if functional and functional not in tags:
+            continue
+        if tags_contains and tags_contains not in tags:
+            continue
+        rows.append(row)
+        if len(rows) >= limit:
+            break
+    return rows
+
+
+def list_entries(limit: int = 50) -> list[dict[str, Any]]:
+    """Most recently cached entries (by cached_at if present)."""
+    project = get_project()
+    rows = [_job_row(job) for job in project]
+    rows.sort(key=lambda r: float(r.get("cached_at") or 0), reverse=True)
+    return rows[:limit]
+
+
+def stats() -> dict[str, Any]:
+    """Aggregate cache statistics."""
+    project = get_project()
+    n = 0
+    formulas: set[str] = set()
+    converged = 0
+    for job in project:
+        n += 1
+        doc = job.doc
+        if doc.get("formula"):
+            formulas.add(str(doc["formula"]))
+        if doc.get("converged"):
+            converged += 1
+    return {
+        "entries": n,
+        "formulas": len(formulas),
+        "converged": converged,
+    }
+
+
+def get_meta(
+    input_dir: Path | str | None = None,
+    *,
+    content_hash: str | None = None,
+    formula: str | None = None,
+    key: str | None = None,
+) -> dict[str, Any] | None:
+    """Return metadata for a cached calculation, or None."""
+    project = get_project()
+    if input_dir is not None:
+        ch = compute_content_hash(Path(input_dir))
+        job = project.open_job({"content_hash": ch})
+        if job not in project:
+            return None
+        return _job_row(job)
+
+    if content_hash is not None:
+        job = project.open_job({"content_hash": content_hash})
+        if job not in project:
+            return None
+        return _job_row(job)
+
+    if formula is not None and key is not None:
+        for job in project.find_jobs({"doc.formula": formula}):
+            sp_ch = job.sp.get("content_hash")
+            tn = job.doc.get("task_name")
+            if key in (sp_ch, tn, f"{formula}_mp-{key}"):
+                return _job_row(job)
+        return None
+
+    return None

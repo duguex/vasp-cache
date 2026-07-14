@@ -1,98 +1,58 @@
 # vasp-cache
 
-VASP 计算结果缓存——持久化存储、语义查询、跨项目复用。
+Black-box VASP calculation cache: **same inputs → restore outputs without re-running VASP**.
 
-## 目标
+Backend: [signac](https://signac.readthedocs.io/). Hard identity is a tunable **Mapping Profile** → `content_hash`. Payload is original files in the job workspace.
 
-**让每一个 VASP 计算只跑一次，之后任意查询、任意复用。**
+## Install
 
-具体来说：
+```bash
+pip install -e ".[dev]"
+```
 
-1. **消除重复计算**——同一材料的 VASP 计算在不同项目中被反复提交是常态（不同课题组各算各的 GaN）。vasp-cache 存储计算结果，新项目先查缓存，命中则无需再次提交 VASP。只需一次。
+## Core API
 
-2. **跨项目复用**——一个项目的 VASP 计算结果对另一个项目有参考价值（GaN 的能带隙、SiC 的晶格常数……）。传统做法是每个项目各自维护 OUTCAR 目录，无法搜索。vasp-cache 提供统一的查询入口。
+```python
+from vasp_cache import put, has, fetch, query, content_hash, load_mapping
 
-3. **工具无关**——不绑定任何管线框架（vasp-sop、custodian、pydefect），任何 Python 脚本或 CLI 都可以独立使用。
+put("/path/to/complete_calc")          # returns content_hash or None
+has("/path/to/inputs_only")            # bool
+fetch("/path/to/inputs_only")          # restore OUTCAR/CONTCAR/…
+query(formula="GaN")                   # metadata search
+```
 
-## 非目标
+## CLI
 
-- 不做作业调度
-- 不做形成能分析
-- 不做 VASP 输入生成
-- 不做计算队列管理
+```bash
+vasp-cache put <dir>
+vasp-cache put -r <root>
+vasp-cache fetch <dir>
+vasp-cache has <dir>
+vasp-cache query --formula GaN
+vasp-cache status
+vasp-cache content-hash <dir>
+vasp-cache mapping show
+vasp-cache mapping check
+```
 
-## 核心能力
+## Cache root
 
-| 能力 | 说明 |
-|------|------|
-| 写入 | 解析 VASP 输出目录，提取元数据和大 blob |
-| 按路径查 | 给定计算目录，返回缓存条目 |
-| 按条件查 | formula、functional、tags、bandgap 范围等 |
-| 列举 | 最近条目、聚合统计 |
-| 文件恢复 | 从缓存重建 OUTCAR/CONTCAR |
+Default: `~/.vasp_cache`  
+Override: `VASP_CACHE_ROOT` or `override_cache_root(path)`.
 
-## 参考
+## Mapping profile
 
-### 相关项目
+Default: package `mapping.default.yaml` (legacy-compatible critical INCAR keys + `key_generation`).
 
-| 项目 | 关系 |
-|------|------|
-| **[vasp-sop](https://github.com/duguex/pydefect-workflow-sop)** | VASP 点缺陷计算管线。vasp-cache 的前身，现在通过接口依赖 vasp-cache |
-| **[vasp-wiki](https://github.com/duguex/vasp_incar)** | VASP 知识库——INCAR 参数、输入文件模板、常见问题排错、DFT 工具集 |
-| **[pymatgen](https://github.com/materialsproject/pymatgen)** | 结构解析、OUTCAR/Vasprun 解析、Spacegroup 分析。vasp-cache 的核心下游依赖 |
-| **[maggma](https://github.com/materialsproject/maggma)** | JSONStore 后端——提供 MongoDB 风格的本地文件数据库 |
-| **[emmet](https://github.com/materialsproject/emmet)** | TaskDoc —— VASP 计算的结构化解析结果 |
-| **[Materials Project](https://next-gen.materialsproject.org/)** | 材料数据库，提供参考能量和晶体结构 |
+User overlay: `~/.vasp_cache/mapping.yaml` or `VASP_CACHE_MAPPING`.
 
-### 相关文档
+- Soft weights change nearness only.
+- Critical edits require bumping `key_generation`.
 
-- **maggma JSONStore 文档**：了解底层存储机制（https://maggma.readthedocs.io/）
-- **pymatgen Outcar / Vasprun 解析**：了解写入缓存的数据格式
-- **vasp-sop AGENTS.md**：了解 cache 模块的原始设计背景和集成方式
+## Design
 
-## 许可
+See `docs/superpowers/specs/2026-07-14-vasp-cache-signac-design.md`.
+
+## License
 
 MIT
-
-## 生态位置
-
-vasp-cache 是整个 VASP 工作流中的**数据层**，不产生数据、不消费数据——只存储和索引。
-
-```
-用户工作流                    数据流
-─────────────────────────────────────────────────
-                                   ┌──────────┐
-                                   │ Materials │
-                                   │  Project  │
-                                   └────┬─────┘
-                                        │ 参考结构/能量
-                                        ▼
-┌──────────┐  提交   ┌──────────┐  输出  ┌──────────┐
-│  vasp-sop │───────▶│   VASP   │───────▶│vasp-cache│
-│  (管线)   │        │ (计算)   │        │ (缓存)   │
-└──────────┘        └──────────┘        └────┬─────┘
-                                            │
-                     ┌──────────┐            │ 查询/恢复
-                     │ 分析工具  │◀──────────┘
-                     │(pydefect) │
-                     └──────────┘
-
-         vasp-wiki (知识库：怎么算)
-              │
-              ▼
-         vasp-sop (管线：自动算)
-              │
-              ▼
-         vasp-cache (缓存：不算第二次)
-```
-
-### 各项目定位
-
-| 项目 | 定位 | 回答的问题 |
-|------|------|-----------|
-| **vasp-wiki** | 知识库 | VASP 怎么配参数？这个体系用什么 functional？ |
-| **vasp-sop** | 管线 | 点缺陷形成能自动化计算 |
-| **vasp-cache** | 缓存 | 以前算过这个吗？结果在哪？ |
-| **pydefect** | 分析 | 缺陷形成能是多少？ |
-| **pymatgen** | 解析 | OUTCAR 里是什么？ |
-| **Materials Project** | 参考 | 这个材料存在吗？参考能量是多少？ |
