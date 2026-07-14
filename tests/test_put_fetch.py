@@ -43,10 +43,13 @@ def test_put_does_not_store_potcar(cache_root: Path, tmp_path: Path):
     _reset_project()
     calc = write_complete_calc(tmp_path / "calc")
     ch = put(calc)
-    from vasp_cache.paths import get_project
+    from vasp_cache.meta import get_entry
+    from vasp_cache.paths import cache_root as cr
 
-    job = get_project().open_job({"content_hash": ch})
-    assert not Path(job.fn("POTCAR")).is_file()
+    entry = get_entry(cr(), ch)
+    assert entry is not None
+    assert "POTCAR" not in (entry.get("objects") or {})
+
 
 def test_put_unconverged_outcar_stores_with_false_flag(cache_root: Path, tmp_path: Path):
     _reset_project()
@@ -54,10 +57,13 @@ def test_put_unconverged_outcar_stores_with_false_flag(cache_root: Path, tmp_pat
     write_minimal_outcar(calc, energy="-8.3", converged=False)
     ch = put(calc)
     assert ch is not None, "put should store even when unconverged if energy present"
-    from vasp_cache.paths import get_project
-    job = get_project().open_job({"content_hash": ch})
-    assert job.doc["total_energy"] == -8.3
-    assert job.doc["converged"] is False
+    from vasp_cache.meta import get_entry
+    from vasp_cache.paths import cache_root as cr
+
+    entry = get_entry(cr(), ch)
+    assert entry is not None
+    assert entry["total_energy"] == -8.3
+    assert entry["converged"] is False
     # clearing OUTCAR + CONTCAR -> fetch should restore
     for name in ("OUTCAR", "CONTCAR"):
         (calc / name).unlink()

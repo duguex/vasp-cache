@@ -3,30 +3,18 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-import signac
 
-from vasp_cache.paths import cache_root, get_project, override_cache_root
-
-
-def test_get_project_creates_signac(cache_root: Path) -> None:
-    from vasp_cache import paths
-
-    paths._reset_project()  # clear singleton
-    project = get_project()
-    assert Path(project.path) == cache_root
-    assert (cache_root / ".signac").exists()
-    assert signac.get_project(path=str(cache_root)) is not None
+from vasp_cache.paths import cache_root, override_cache_root
 
 
-def test_override_cache_root(tmp_path: Path) -> None:
+def test_cache_root_override(tmp_path: Path) -> None:
     from vasp_cache import paths
 
     paths._reset_project()
     other = tmp_path / "other"
     other.mkdir()
     override_cache_root(other)
-    p = get_project()
-    assert Path(p.path) == other
+    assert cache_root() == other.resolve()
 
 
 def test_cache_root_default_not_set(monkeypatch: pytest.MonkeyPatch) -> None:

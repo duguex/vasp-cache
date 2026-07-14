@@ -31,7 +31,7 @@ def test_export_import_roundtrip(tmp_path: Path):
     _reset_project()
     override_cache_root(None)
     man = import_archive(arch, root=dst_root, overwrite=False)
-    assert man.get("format") == "vasp-cache-archive-v1"
+    assert man.get("format") in ("vasp-cache-archive-v1", "vasp-cache-archive-v2")
     assert "stats" in man
 
     _reset_project()
@@ -78,6 +78,5 @@ def test_import_refuses_nonempty_without_overwrite(tmp_path: Path):
     assert raised
 
     man = import_archive(arch, root=dst_root, overwrite=True)
-    assert man.get("format") == "vasp-cache-archive-v1"
-    _reset_project()
+    assert man.get("format") in ("vasp-cache-archive-v1", "vasp-cache-archive-v2")
     override_cache_root(None)

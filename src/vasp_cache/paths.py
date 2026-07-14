@@ -1,13 +1,12 @@
+"""Cache root resolution (no signac)."""
+
 from __future__ import annotations
 
 import os
 import threading
 from pathlib import Path
 
-import signac
-
 _cache_root: Path | None = None
-_project: signac.Project | None = None
 _lock = threading.Lock()
 
 
@@ -36,40 +35,45 @@ def override_cache_root(p: Path | None) -> None:
     """Override the cache root directory (primarily for tests).
 
     Pass ``None`` to clear the override and fall back to env / default.
+    Also closes meta DB connections so the next op uses the new root.
     """
-    global _cache_root, _project
+    global _cache_root
     with _lock:
         _cache_root = Path(p).resolve() if p is not None else None
-        _project = None
+    try:
+        from vasp_cache.meta import close_all
+
+        close_all()
+    except Exception:
+        pass
 
 
 def _reset_project() -> None:
-    """Drop cached project singleton and cache-root override (tests)."""
-    global _cache_root, _project
+    """Drop cache-root override and meta connections (tests).
+
+    Name kept for test compatibility (was signac project reset).
+    """
+    global _cache_root
     with _lock:
         _cache_root = None
-        _project = None
+    try:
+        from vasp_cache.meta import close_all
 
-
-def get_project() -> signac.Project:
-    """Return (or create) a signac Project at the active cache root.
-
-    The project is cached as a module-level singleton so subsequent calls
-    do not re-read the filesystem.
-    """
-    global _project
-    with _lock:
-        if _project is not None:
-            return _project
-        root = _resolved_root()
-        root.mkdir(parents=True, exist_ok=True)
-        try:
-            _project = signac.get_project(path=str(root))
-        except LookupError:
-            _project = signac.init_project(path=str(root))
-        return _project
+        close_all()
+    except Exception:
+        pass
 
 
 def cache_root() -> Path:
-    """Return the current effective cache root without creating a project."""
+    """Return the current effective cache root without creating it."""
     return _resolved_root()
+
+
+def get_project():
+    """Deprecated: signac project no longer used.
+
+    Kept so older tests fail clearly if still imported for job.fn paths.
+    """
+    raise RuntimeError(
+        "signac backend removed; use vasp_cache.api / meta / cas instead of get_project()"
+    )

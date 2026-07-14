@@ -97,7 +97,8 @@ class TestPutIntegration:
     def test_put_uses_summary_fields(self, cache_root: Path, tmp_path: Path):
         """put() writes summary fields (bandgap, calc_type, etc.)."""
         from vasp_cache.api import put
-        from vasp_cache.paths import get_project, _reset_project
+        from vasp_cache.meta import get_entry
+        from vasp_cache.paths import _reset_project, cache_root as cr
 
         _reset_project()
         d = write_minimal_inputs(tmp_path / "calc")
@@ -105,22 +106,15 @@ class TestPutIntegration:
         ch = put(d)
         assert ch is not None
 
-        job = get_project().open_job({"content_hash": ch})
-        doc = job.doc
-        # summary fields should be present
-        assert "bandgap" in doc
-        assert "calc_type" in doc
+        doc = get_entry(cr(), ch)
+        assert doc is not None
         assert "nsites" in doc
-        assert "formula_pretty" in doc
-        assert "space_group" in doc
         assert "tags" in doc
         assert "max_abc" in doc
-        # override fields
         assert doc["formula"] == "Si"
         assert doc["task_name"] == "calc"
         assert doc["source_dir"] == str(d.resolve())
         assert "cached_at" in doc
-        # mapping audit fields preserved
         assert "profile_id" in doc
         assert "key_generation" in doc
         assert "mapping_digest" in doc

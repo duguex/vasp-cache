@@ -4,13 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vasp-cache"
-version = "0.1.0"
-description = "Black-box VASP calculation cache (signac backend)"
+version = "0.2.0"
+description = "Black-box VASP calculation cache (CAS + SQLite backend)"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 dependencies = [
-    "signac>=2.0,<3",
     "pyyaml>=6.0",
     "emmet-core>=0.60",
     "pymatgen>=2023.0",

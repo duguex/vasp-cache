@@ -2,7 +2,9 @@
 
 Black-box VASP calculation cache: **same inputs → restore outputs without re-running VASP**.
 
-Backend: [signac](https://signac.readthedocs.io/). Hard identity is a tunable **Mapping Profile** → `content_hash`. Payload is original files in the job workspace.
+Backend: **CAS + SQLite** (`cas/` objects + `meta.sqlite`). Hard identity is a tunable **Mapping Profile** → `content_hash`. Identical file bytes are stored once.
+
+See `docs/DESIGN-storage-v2.md`. Legacy signac trees migrate with `scripts/migrate_signac_to_cas.py`.
 
 ## Install
 

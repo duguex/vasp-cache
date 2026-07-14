@@ -67,10 +67,15 @@ def write_complete_calc(d: Path, energy: str = "-5.0") -> Path:
 
 @pytest.fixture
 def cache_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    from vasp_cache.paths import _reset_project, override_cache_root
+
     root = tmp_path / "vasp_cache_root"
     root.mkdir()
+    _reset_project()
     monkeypatch.setenv("VASP_CACHE_ROOT", str(root))
-    return root
+    override_cache_root(root)
+    yield root
+    _reset_project()
 
 
 LARGE_POSCAR = """\
