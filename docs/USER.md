@@ -108,21 +108,15 @@ MP 下载缓存、jobs.db 仍在 `~/.vasp_sop/`，与结果库分离。
 
 作业调度、形成能分析、自动造 VASP 输入、结构相似度搜索（未产品化）。
 
-## 日志（诊断 + 审计）
 
-两路：
+## 日志（诊断）
 
-| 通道 | 作用 | 如何开 |
-|------|------|--------|
-| stderr logging | 诊断（skip 原因等） | `vasp-cache -v`（INFO）/ `-vv`（DEBUG）；或 `VASP_CACHE_LOG_LEVEL=DEBUG` |
-| JSONL audit | 可审计操作轨迹 | 默认 `$VASP_CACHE_ROOT/logs/audit.jsonl`；`--audit-log PATH`；`VASP_CACHE_AUDIT_LOG=`；`VASP_CACHE_AUDIT=0` 关闭 |
-
-事件示例：`put_ok` / `put_skip` / `has_hit` / `has_miss` / `fetch_ok` / `fetch_miss`。
-
-每行字段含：`ts`, `ts_iso`, `event`, `host`, `pid`, `user`, `dir`, `content_hash`, `reason`, …
+标准 Python logging，模块 ``vasp_cache.*``。
 
 ```bash
-vasp-cache -v put /path/to/calc
-vasp-cache --audit-log /tmp/vc-audit.jsonl put -r /tree
-tail -f /mnt/shared/vasp_cache/logs/audit.jsonl
+vasp-cache -v put /path/to/calc    # INFO：skip/hit 原因
+vasp-cache -vv put -r /tree        # DEBUG
+export VASP_CACHE_LOG_LEVEL=DEBUG  # 库调用时
 ```
+
+无独立审计文件；看终端即可。
