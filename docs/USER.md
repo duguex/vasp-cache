@@ -109,14 +109,23 @@ MP 下载缓存、jobs.db 仍在 `~/.vasp_sop/`，与结果库分离。
 作业调度、形成能分析、自动造 VASP 输入、结构相似度搜索（未产品化）。
 
 
-## 日志（诊断）
 
-标准 Python logging，模块 ``vasp_cache.*``。
+## 日志（诊断，被动写文件）
 
-```bash
-vasp-cache -v put /path/to/calc    # INFO：skip/hit 原因
-vasp-cache -vv put -r /tree        # DEBUG
-export VASP_CACHE_LOG_LEVEL=DEBUG  # 库调用时
+**不用你手动开。** 一用库/CLI 就会写到：
+
+```text
+$VASP_CACHE_ROOT/logs/vasp_cache.log
 ```
 
-无独立审计文件；看终端即可。
+默认生产路径：`/mnt/shared/vasp_cache/logs/vasp_cache.log`  
+覆盖：`export VASP_CACHE_LOG_FILE=/path/to.log`
+
+- 文件：INFO 及以上（put skip/ok、has/fetch、异常）
+- 终端：默认几乎安静；`-v` / `-vv` 只影响终端详细程度
+- 轮转：约 20MB × 5
+
+```bash
+tail -f /mnt/shared/vasp_cache/logs/vasp_cache.log
+vasp-cache -v put /path    # 同时在终端看 INFO
+```

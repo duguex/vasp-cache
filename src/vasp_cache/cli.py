@@ -88,14 +88,22 @@ def main(argv: list[str] | None = None) -> int:
         from vasp_cache.api import put
 
         if args.recursive:
+            import logging
+            log = logging.getLogger("vasp_cache.cli")
             n = 0
+            n_err = 0
             for outcar in Path(args.dir).rglob("OUTCAR"):
-                ch = put(outcar.parent)
+                try:
+                    ch = put(outcar.parent)
+                except Exception:
+                    n_err += 1
+                    log.exception("put failed %s", outcar.parent)
+                    continue
                 if ch:
                     n += 1
                     print(ch)
-            print(f"cached {n} calculations", file=sys.stderr)
-            return 0
+            print(f"cached {n} calculations errors={n_err}", file=sys.stderr)
+            return 1 if n_err else 0
         ch = put(args.dir)
         if ch is None:
             print("skip: not usable (use -v for reason)", file=sys.stderr)

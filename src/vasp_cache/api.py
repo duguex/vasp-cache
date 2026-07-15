@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from vasp_cache import cas, meta
+from vasp_cache.logutil import ensure_logging
 from vasp_cache.mapping import content_hash as compute_content_hash
 from vasp_cache.mapping import load_mapping, mapping_digest
 from vasp_cache.parse import MAX_LATTICE, summarize_calc
@@ -71,7 +72,29 @@ def put(
     store_inputs: bool = True,
     include: Iterable[str] = (),
 ) -> str | None:
+    ensure_logging()
     calc_dir = Path(calc_dir)
+    try:
+        return _put_impl(
+            calc_dir,
+            formula=formula,
+            task_name=task_name,
+            store_inputs=store_inputs,
+            include=include,
+        )
+    except Exception:
+        logger.exception("put failed %s", calc_dir)
+        raise
+
+
+def _put_impl(
+    calc_dir: Path,
+    *,
+    formula: str | None = None,
+    task_name: str | None = None,
+    store_inputs: bool = True,
+    include: Iterable[str] = (),
+) -> str | None:
     usable, _, converged = _outcar_usable(calc_dir)
     if not usable:
         reason = "not_converged_or_missing_outcar"
@@ -158,6 +181,7 @@ def put(
 
 
 def has(input_dir: Path | str) -> bool:
+    ensure_logging()
     input_dir = Path(input_dir)
     ch = compute_content_hash(input_dir)
     root = cache_root()
@@ -174,6 +198,7 @@ def has(input_dir: Path | str) -> bool:
 
 
 def fetch(input_dir: Path | str) -> bool:
+    ensure_logging()
     input_dir = Path(input_dir)
     ch = compute_content_hash(input_dir)
     root = cache_root()
