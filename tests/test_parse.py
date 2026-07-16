@@ -91,6 +91,97 @@ class TestSummarizeCalc:
         assert MAX_LATTICE == 25.0
 
 
+@pytest.mark.parametrize(
+    ("incar", "expected"),
+    [
+        ("", {"nsw": 0, "ibrion": -1, "isif": 2}),
+        ("NSW = 4\n", {"nsw": 4, "ibrion": 0, "isif": 0}),
+        ("NSW = 4\nIBRION = 1\n", {"nsw": 4, "ibrion": 1, "isif": 2}),
+        (
+            "NSW = 4\nIBRION = 1\nLHFCALC = .TRUE.\n",
+            {"nsw": 4, "ibrion": 1, "isif": 0},
+        ),
+    ],
+)
+def test_effective_incar_defaults(
+    tmp_path: Path, incar: str, expected: dict[str, int]
+):
+    src = write_minimal_inputs(tmp_path / "calc")
+    (src / "INCAR").write_text(incar)
+    write_minimal_outcar(src, energy="-5.0", converged=True)
+    summary = summarize_calc(src)
+    assert {key: summary[key] for key in expected} == expected
+
+
+@pytest.mark.parametrize(
+    ("incar", "expected"),
+    [
+        ("NSW = 4\nIBRION = 0\n", "sampled"),
+        ("NSW = 4\nIBRION = 3\n", "sampled"),
+        ("IBRION = 5\n", "sampled"),
+        ("IBRION = 6\n", "sampled"),
+        ("IBRION = 7\n", "sampled"),
+        ("IBRION = 8\n", "sampled"),
+        ("NSW = 4\nIBRION = 1\n", "canonical"),
+        ("NSW = 4\nIBRION = 2\n", "canonical"),
+        ("", "unknown"),
+    ],
+)
+def test_provenance_classification(
+    tmp_path: Path, incar: str, expected: str
+):
+    src = write_minimal_inputs(tmp_path / "calc")
+    (src / "INCAR").write_text(incar)
+    write_minimal_outcar(src, energy="-5.0", converged=True)
+    summary = summarize_calc(src)
+    assert summary["provenance"] == expected
+
+
+def test_run_metadata_survives_successful_taskdoc(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    class Output:
+        energy = -5.0
+        bandgap = None
+        structure = None
+
+    class Doc:
+        state = "successful"
+        output = Output()
+        formula_pretty = "Si"
+        nsites = 2
+        symmetry = None
+        calc_type = None
+        run_type = None
+
+    from emmet.core.tasks import TaskDoc
+
+    monkeypatch.setattr(
+        TaskDoc,
+        "from_directory",
+        lambda *_args, **_kwargs: Doc(),
+    )
+    src = write_minimal_inputs(tmp_path / "taskdoc")
+    (src / "INCAR").write_text("NSW = 4\nIBRION = 0\n")
+    write_minimal_outcar(src, energy="-5.0", converged=True)
+
+    summary = summarize_calc(src)
+
+    assert summary["parsed_by"] == "TaskDoc"
+    assert summary["nsw"] == 4
+    assert summary["ibrion"] == 0
+    assert summary["provenance"] == "sampled"
+
+
+def test_run_status_fields_are_independent(tmp_path: Path):
+    src = write_minimal_inputs(tmp_path / "status")
+    write_minimal_outcar(src, energy="-5.0", converged=True)
+    summary = summarize_calc(src)
+    assert summary["outcar_complete"] is True
+    assert summary["electronic_converged"] is None
+    assert summary["ionic_converged"] is None
+
+
 class TestPutIntegration:
     """Integration tests: put now fills richer doc from summarize_calc."""
 

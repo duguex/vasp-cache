@@ -10,35 +10,75 @@ import sqlite3
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
+
+from vasp_cache.errors import ProvenanceConflictError
 
 _DB_NAME = "meta.sqlite"
 _lock = threading.Lock()
 _conns: dict[str, sqlite3.Connection] = {}
 
+ProvenanceFilter = Literal["canonical", "sampled", "unknown", "all"]
+_PROVENANCE_VALUES = {"canonical", "sampled", "unknown"}
+_PROVENANCE_SOURCES = {"explicit", "inferred", "legacy"}
+_SOURCE_RANK = {"legacy": 0, "inferred": 1, "explicit": 2}
+
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS entries (
-    content_hash   TEXT PRIMARY KEY,
-    formula        TEXT,
-    task_name      TEXT,
-    total_energy   REAL,
-    converged      INTEGER,
-    bandgap        REAL,
-    nsites         INTEGER,
-    max_abc        REAL,
-    tags           TEXT,
-    source_dir     TEXT,
-    profile_id     TEXT,
-    key_generation INTEGER,
-    mapping_digest TEXT,
-    cached_at      REAL NOT NULL,
-    objects_json   TEXT NOT NULL,
-    extra_json     TEXT
+    content_hash          TEXT PRIMARY KEY,
+    formula               TEXT,
+    task_name             TEXT,
+    total_energy          REAL,
+    converged             INTEGER,
+    bandgap               REAL,
+    nsites                INTEGER,
+    max_abc               REAL,
+    tags                  TEXT,
+    source_dir            TEXT,
+    profile_id            TEXT,
+    key_generation        INTEGER,
+    mapping_digest        TEXT,
+    cached_at             REAL NOT NULL,
+    objects_json          TEXT NOT NULL,
+    extra_json            TEXT,
+    provenance            TEXT NOT NULL DEFAULT 'unknown',
+    provenance_source     TEXT NOT NULL DEFAULT 'legacy',
+    outcar_complete       INTEGER,
+    electronic_converged  INTEGER,
+    ionic_converged       INTEGER,
+    nsw                   INTEGER,
+    ibrion                INTEGER,
+    isif                  INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_entries_formula ON entries(formula);
 CREATE INDEX IF NOT EXISTS idx_entries_cached_at ON entries(cached_at);
 CREATE INDEX IF NOT EXISTS idx_entries_energy ON entries(total_energy);
 """
+
+
+_MIGRATION_COLUMNS = {
+    "provenance": "TEXT NOT NULL DEFAULT 'unknown'",
+    "provenance_source": "TEXT NOT NULL DEFAULT 'legacy'",
+    "outcar_complete": "INTEGER",
+    "electronic_converged": "INTEGER",
+    "ionic_converged": "INTEGER",
+    "nsw": "INTEGER",
+    "ibrion": "INTEGER",
+    "isif": "INTEGER",
+}
+
+
+def _ensure_schema(conn: sqlite3.Connection) -> None:
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(entries)")}
+    for name, definition in _MIGRATION_COLUMNS.items():
+        if name not in columns:
+            conn.execute(f"ALTER TABLE entries ADD COLUMN {name} {definition}")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_entries_provenance "
+        "ON entries(provenance)"
+    )
+    conn.commit()
 
 
 def db_path(cache_root: Path) -> Path:
@@ -58,6 +98,7 @@ def connect(cache_root: Path) -> sqlite3.Connection:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.executescript(_SCHEMA)
+        _ensure_schema(conn)
         conn.commit()
         _conns[root] = conn
         return conn
@@ -93,18 +134,70 @@ def upsert_entry(
     mapping_digest: str | None = None,
     cached_at: float | None = None,
     extra: dict[str, Any] | None = None,
+    provenance: str = "unknown",
+    provenance_source: str = "legacy",
+    outcar_complete: bool | None = None,
+    electronic_converged: bool | None = None,
+    ionic_converged: bool | None = None,
+    nsw: int | None = None,
+    ibrion: int | None = None,
+    isif: int | None = None,
 ) -> None:
     conn = connect(cache_root)
+    if provenance not in _PROVENANCE_VALUES:
+        raise ValueError(f"invalid provenance: {provenance}")
+    if provenance_source not in _PROVENANCE_SOURCES:
+        raise ValueError(f"invalid provenance source: {provenance_source}")
     now = cached_at if cached_at is not None else time.time()
-    conv = None if converged is None else (1 if converged else 0)
-    extra_json = json.dumps(extra) if extra else None
+    values = {
+        "content_hash": content_hash,
+        "formula": formula,
+        "task_name": task_name,
+        "total_energy": total_energy,
+        "converged": None if converged is None else int(bool(converged)),
+        "bandgap": bandgap,
+        "nsites": nsites,
+        "max_abc": max_abc,
+        "tags": tags,
+        "source_dir": source_dir,
+        "profile_id": profile_id,
+        "key_generation": key_generation,
+        "mapping_digest": mapping_digest,
+        "cached_at": now,
+        "objects_json": json.dumps(objects, sort_keys=True),
+        "extra_json": json.dumps(extra, sort_keys=True) if extra else None,
+        "provenance": provenance,
+        "provenance_source": provenance_source,
+        "outcar_complete": (
+            None if outcar_complete is None else int(bool(outcar_complete))
+        ),
+        "electronic_converged": (
+            None
+            if electronic_converged is None
+            else int(bool(electronic_converged))
+        ),
+        "ionic_converged": (
+            None if ionic_converged is None else int(bool(ionic_converged))
+        ),
+        "nsw": nsw,
+        "ibrion": ibrion,
+        "isif": isif,
+    }
     conn.execute(
         """
         INSERT INTO entries (
             content_hash, formula, task_name, total_energy, converged, bandgap,
             nsites, max_abc, tags, source_dir, profile_id, key_generation,
-            mapping_digest, cached_at, objects_json, extra_json
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            mapping_digest, cached_at, objects_json, extra_json, provenance,
+            provenance_source, outcar_complete, electronic_converged,
+            ionic_converged, nsw, ibrion, isif
+        ) VALUES (
+            :content_hash, :formula, :task_name, :total_energy, :converged,
+            :bandgap, :nsites, :max_abc, :tags, :source_dir, :profile_id,
+            :key_generation, :mapping_digest, :cached_at, :objects_json,
+            :extra_json, :provenance, :provenance_source, :outcar_complete,
+            :electronic_converged, :ionic_converged, :nsw, :ibrion, :isif
+        )
         ON CONFLICT(content_hash) DO UPDATE SET
             formula=excluded.formula,
             task_name=excluded.task_name,
@@ -120,26 +213,17 @@ def upsert_entry(
             mapping_digest=excluded.mapping_digest,
             cached_at=excluded.cached_at,
             objects_json=excluded.objects_json,
-            extra_json=excluded.extra_json
+            extra_json=excluded.extra_json,
+            provenance=excluded.provenance,
+            provenance_source=excluded.provenance_source,
+            outcar_complete=excluded.outcar_complete,
+            electronic_converged=excluded.electronic_converged,
+            ionic_converged=excluded.ionic_converged,
+            nsw=excluded.nsw,
+            ibrion=excluded.ibrion,
+            isif=excluded.isif
         """,
-        (
-            content_hash,
-            formula,
-            task_name,
-            total_energy,
-            conv,
-            bandgap,
-            nsites,
-            max_abc,
-            tags,
-            source_dir,
-            profile_id,
-            key_generation,
-            mapping_digest,
-            now,
-            json.dumps(objects, sort_keys=True),
-            extra_json,
-        ),
+        values,
     )
     conn.commit()
 
@@ -162,6 +246,62 @@ def has_entry(cache_root: Path, content_hash: str) -> bool:
     return r is not None
 
 
+def preflight_provenance(
+    cache_root: Path,
+    content_hash: str,
+    incoming: str,
+    incoming_source: str,
+) -> tuple[str, str]:
+    """Resolve a duplicate role before any CAS object is written."""
+    if incoming not in _PROVENANCE_VALUES:
+        raise ValueError(f"invalid provenance: {incoming}")
+    if incoming_source not in _PROVENANCE_SOURCES:
+        raise ValueError(f"invalid provenance source: {incoming_source}")
+
+    existing = get_entry(cache_root, content_hash)
+    if existing is None:
+        return incoming, incoming_source
+
+    current = existing.get("provenance") or "unknown"
+    current_source = existing.get("provenance_source") or "legacy"
+    if current not in _PROVENANCE_VALUES:
+        current = "unknown"
+    if current_source not in _PROVENANCE_SOURCES:
+        current_source = "legacy"
+
+    if current_source == "explicit":
+        if (
+            incoming_source == "explicit"
+            and current != incoming
+            and current != "unknown"
+            and incoming != "unknown"
+        ):
+            raise ProvenanceConflictError(
+                f"content hash {content_hash} has explicit provenance "
+                f"{current!r}, cannot replace with {incoming!r}"
+            )
+        return current, current_source
+
+    if incoming_source == "explicit":
+        return incoming, incoming_source
+    if current != "unknown" and incoming == "unknown":
+        return current, current_source
+    if (
+        current_source == "inferred"
+        and incoming_source == "inferred"
+        and current != incoming
+        and current != "unknown"
+        and incoming != "unknown"
+    ):
+        raise ProvenanceConflictError(
+            f"content hash {content_hash} has inferred provenance "
+            f"{current!r}, cannot replace with {incoming!r}"
+        )
+    if _SOURCE_RANK[incoming_source] >= _SOURCE_RANK[current_source]:
+        return incoming, incoming_source
+    return current, current_source
+
+
 def query_entries(
     cache_root: Path,
     *,
@@ -174,11 +314,17 @@ def query_entries(
     min_energy: float | None = None,
     max_energy: float | None = None,
     converged_only: bool = False,
+    provenance: ProvenanceFilter = "canonical",
     limit: int = 100,
 ) -> list[dict[str, Any]]:
+    if provenance not in {"canonical", "sampled", "unknown", "all"}:
+        raise ValueError(f"invalid provenance filter: {provenance}")
     conn = connect(cache_root)
     clauses: list[str] = []
     params: list[Any] = []
+    if provenance != "all":
+        clauses.append("provenance = ?")
+        params.append(provenance)
     if formula:
         clauses.append("formula = ?")
         params.append(formula)
@@ -213,7 +359,7 @@ def query_entries(
 
 
 def list_recent(cache_root: Path, limit: int = 50) -> list[dict[str, Any]]:
-    return query_entries(cache_root, limit=limit)
+    return query_entries(cache_root, provenance="all", limit=limit)
 
 
 def stats(cache_root: Path) -> dict[str, Any]:
@@ -247,6 +393,12 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
             d.update(json.loads(extra))
         except json.JSONDecodeError:
             d["extra_json"] = extra
-    if d.get("converged") is not None:
-        d["converged"] = bool(d["converged"])
+    for key in (
+        "converged",
+        "outcar_complete",
+        "electronic_converged",
+        "ionic_converged",
+    ):
+        if d.get(key) is not None:
+            d[key] = bool(d[key])
     return d

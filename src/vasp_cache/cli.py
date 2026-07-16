@@ -22,6 +22,12 @@ def main(argv: list[str] | None = None) -> int:
     p_put = sub.add_parser("put", help="Ingest a complete VASP calculation")
     p_put.add_argument("dir", type=Path)
     p_put.add_argument("-r", "--recursive", action="store_true")
+    p_put.add_argument(
+        "--provenance",
+        choices=("canonical", "sampled", "unknown"),
+        default=None,
+        help="explicit calculation provenance",
+    )
 
     p_fetch = sub.add_parser("fetch", help="Restore outputs from cache into input dir")
     p_fetch.add_argument("dir", type=Path)
@@ -42,6 +48,12 @@ def main(argv: list[str] | None = None) -> int:
         "--all",
         action="store_true",
         help="include unconverged rows (default: converged only)",
+    )
+    p_query.add_argument(
+        "--provenance",
+        choices=("canonical", "sampled", "unknown", "all"),
+        default="canonical",
+        help="provenance filter (default: canonical)",
     )
     p_query.add_argument("--limit", "-n", type=int, default=20)
     p_query.add_argument(
@@ -94,7 +106,7 @@ def main(argv: list[str] | None = None) -> int:
             n_err = 0
             for outcar in Path(args.dir).rglob("OUTCAR"):
                 try:
-                    ch = put(outcar.parent)
+                    ch = put(outcar.parent, provenance=args.provenance)
                 except Exception:
                     n_err += 1
                     log.exception("put failed %s", outcar.parent)
@@ -104,7 +116,7 @@ def main(argv: list[str] | None = None) -> int:
                     print(ch)
             print(f"cached {n} calculations errors={n_err}", file=sys.stderr)
             return 1 if n_err else 0
-        ch = put(args.dir)
+        ch = put(args.dir, provenance=args.provenance)
         if ch is None:
             print("skip: not usable (use -v for reason)", file=sys.stderr)
             return 1
@@ -135,6 +147,7 @@ def main(argv: list[str] | None = None) -> int:
             bandgap_min=args.bandgap_min,
             lattice_max=args.lattice_max,
             converged_only=not args.all,
+            provenance=args.provenance,
             limit=args.limit,
         )
         if args.json:
@@ -145,7 +158,8 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             print(f"{len(rows)} hit(s)")
             print(
-                f"{'formula':<16} {'E(eV)':>14} {'gap':>8} {'conv':>4} {'nsites':>6}  content_hash"
+                f"{'formula':<16} {'E(eV)':>14} {'gap':>8} {'conv':>4} "
+                f"{'prov':<10} {'nsites':>6}  content_hash"
             )
             for r in rows:
                 e = r.get("total_energy")
@@ -156,7 +170,9 @@ def main(argv: list[str] | None = None) -> int:
                 ns = r.get("nsites") if r.get("nsites") is not None else "-"
                 ch = str(r.get("content_hash") or "")[:56]
                 print(
-                    f"{str(r.get('formula') or '-'):<16} {e_s:>14} {g_s:>8} {conv:>4} {str(ns):>6}  {ch}"
+                    f"{str(r.get('formula') or '-'):<16} {e_s:>14} {g_s:>8} "
+                    f"{conv:>4} {str(r.get('provenance') or '-'):<10} "
+                    f"{str(ns):>6}  {ch}"
                 )
         return 0
 

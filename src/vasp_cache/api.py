@@ -12,13 +12,26 @@ from vasp_cache import cas, meta
 from vasp_cache.logutil import ensure_logging
 from vasp_cache.mapping import content_hash as compute_content_hash
 from vasp_cache.mapping import load_mapping, mapping_digest
-from vasp_cache.parse import MAX_LATTICE, summarize_calc
+from vasp_cache.errors import ProvenanceConflictError
+from vasp_cache.parse import MAX_LATTICE, Provenance, summarize_calc
 from vasp_cache.paths import cache_root
 
 logger = logging.getLogger(__name__)
 
 _OUTPUT_NAMES = ("OUTCAR", "CONTCAR", "vasprun.xml")
 _INPUT_NAMES = ("INCAR", "POSCAR", "KPOINTS")  # no POTCAR
+_PROVENANCE_VALUES = {"canonical", "sampled", "unknown"}
+__all__ = [
+    "ProvenanceConflictError",
+    "Provenance",
+    "put",
+    "has",
+    "fetch",
+    "query",
+    "get_meta",
+    "list_entries",
+    "stats",
+]
 
 
 def _detect_formula_task(src_dir: Path) -> tuple[str, str]:
@@ -71,9 +84,12 @@ def put(
     task_name: str | None = None,
     store_inputs: bool = True,
     include: Iterable[str] = (),
+    provenance: Provenance | None = None,
 ) -> str | None:
     ensure_logging()
     calc_dir = Path(calc_dir)
+    if provenance is not None and provenance not in _PROVENANCE_VALUES:
+        raise ValueError(f"invalid provenance: {provenance}")
     try:
         return _put_impl(
             calc_dir,
@@ -81,6 +97,7 @@ def put(
             task_name=task_name,
             store_inputs=store_inputs,
             include=include,
+            provenance=provenance,
         )
     except Exception:
         logger.exception("put failed %s", calc_dir)
@@ -94,6 +111,7 @@ def _put_impl(
     task_name: str | None = None,
     store_inputs: bool = True,
     include: Iterable[str] = (),
+    provenance: Provenance | None = None,
 ) -> str | None:
     usable, _, converged = _outcar_usable(calc_dir)
     if not usable:
@@ -119,6 +137,11 @@ def _put_impl(
     formula = formula or f
     task_name = task_name or tn
     root = cache_root()
+    incoming_provenance = provenance or summary.get("provenance", "unknown")
+    incoming_source = "explicit" if provenance is not None else "inferred"
+    resolved_provenance, resolved_source = meta.preflight_provenance(
+        root, ch, incoming_provenance, incoming_source
+    )
 
     objects: dict[str, str] = {}
     for name in _OUTPUT_NAMES:
@@ -155,6 +178,13 @@ def _put_impl(
         "nsites",
         "max_abc",
         "tags",
+        "outcar_complete",
+        "electronic_converged",
+        "ionic_converged",
+        "nsw",
+        "ibrion",
+        "isif",
+        "provenance",
     }
     extra = {k: v for k, v in summary.items() if k not in core_keys}
     meta.upsert_entry(
@@ -175,6 +205,14 @@ def _put_impl(
         mapping_digest=mapping_digest(calc_dir, mapping=m),
         cached_at=time.time(),
         extra=extra or None,
+        provenance=resolved_provenance,
+        provenance_source=resolved_source,
+        outcar_complete=summary.get("outcar_complete"),
+        electronic_converged=summary.get("electronic_converged"),
+        ionic_converged=summary.get("ionic_converged"),
+        nsw=summary.get("nsw"),
+        ibrion=summary.get("ibrion"),
+        isif=summary.get("isif"),
     )
     logger.info("put ok %s hash=%s formula=%s", calc_dir, ch, formula)
     return ch
@@ -230,6 +268,7 @@ def query(
     bandgap_min: float | None = None,
     lattice_max: float | None = None,
     converged_only: bool = True,
+    provenance: meta.ProvenanceFilter = "canonical",
     limit: int = 100,
 ) -> list[dict[str, Any]]:
     """Semantic query over metadata fields."""
@@ -242,6 +281,7 @@ def query(
         bandgap_min=bandgap_min,
         lattice_max=lattice_max,
         converged_only=converged_only,
+        provenance=provenance,
         limit=limit,
     )
 
@@ -262,6 +302,7 @@ def get_meta(
     content_hash: str | None = None,
     formula: str | None = None,
     key: str | None = None,
+    provenance: meta.ProvenanceFilter = "canonical",
 ) -> dict[str, Any] | None:
     """Return metadata for a cached calculation, or None."""
     root = cache_root()
@@ -272,7 +313,11 @@ def get_meta(
         return meta.get_entry(root, content_hash)
     if formula is not None:
         rows = meta.query_entries(
-            root, formula=formula, converged_only=False, limit=50
+            root,
+            formula=formula,
+            converged_only=False,
+            provenance=provenance,
+            limit=50,
         )
         if key is None:
             return rows[0] if rows else None

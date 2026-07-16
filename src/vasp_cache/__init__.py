@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from vasp_cache.api import (
+    ProvenanceConflictError,
     fetch,
     get_meta,
     has,
@@ -24,6 +25,7 @@ from vasp_cache.paths import override_cache_root
 __version__ = "0.2.0"
 
 __all__ = [
+    "ProvenanceConflictError",
     "__version__",
     "content_hash",
     "export_archive",

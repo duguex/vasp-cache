@@ -27,3 +27,23 @@ def test_cli_has_fetch(cache_root: Path, tmp_path: Path):
     assert main(["has", str(work)]) == 0
     assert main(["fetch", str(work)]) == 0
     assert (work / "OUTCAR").is_file()
+
+def test_cli_query_defaults_canonical_and_all_opt_in(
+    cache_root: Path, tmp_path: Path, capsys
+):
+    _reset_project()
+    canonical = write_complete_calc(tmp_path / "canonical")
+    sampled = write_complete_calc(tmp_path / "sampled")
+    (sampled / "INCAR").write_text("NSW = 4\nIBRION = 0\n")
+
+    assert main(["put", "--provenance", "canonical", str(canonical)]) == 0
+    assert main(["put", "--provenance", "sampled", str(sampled)]) == 0
+
+    capsys.readouterr()
+    assert main(["query", "--formula", "Si", "--json"]) == 0
+    default_rows = __import__("json").loads(capsys.readouterr().out)
+    assert {row["provenance"] for row in default_rows} == {"canonical"}
+
+    assert main(["query", "--formula", "Si", "--provenance", "all", "--json"]) == 0
+    all_rows = __import__("json").loads(capsys.readouterr().out)
+    assert {row["provenance"] for row in all_rows} == {"canonical", "sampled"}

@@ -37,20 +37,23 @@ pip install -e ".[dev]"
 ```python
 from vasp_cache import put, has, fetch, query, content_hash, load_mapping
 
-put("/path/to/complete_calc")          # returns content_hash or None
-has("/path/to/inputs_only")            # bool
-fetch("/path/to/inputs_only")          # restore OUTCAR/CONTCAR/…
-query(formula="GaN")                   # metadata search
+put("/path/to/complete_calc", provenance="canonical")
+has("/path/to/inputs_only")          # bool
+fetch("/path/to/inputs_only")        # restore OUTCAR/CONTCAR/…
+query(formula="GaN")                 # canonical only by default
+query(formula="GaN", provenance="sampled")
+query(formula="GaN", provenance="all")
 ```
 
 ## CLI
 
 ```bash
-vasp-cache put <dir>
-vasp-cache put -r <root>
+vasp-cache put <dir> [--provenance canonical|sampled|unknown]
+vasp-cache put -r <root> [--provenance canonical|sampled|unknown]
 vasp-cache fetch <dir>
 vasp-cache has <dir>
-vasp-cache query --formula GaN
+vasp-cache query --formula GaN                 # canonical only
+vasp-cache query --formula GaN --provenance all
 vasp-cache status
 vasp-cache content-hash <dir>
 vasp-cache mapping show
@@ -58,6 +61,11 @@ vasp-cache mapping check
 vasp-cache export-archive /path/to/cache.tgz [--root DIR]
 vasp-cache import-archive /path/to/cache.tgz [--root DIR] [--overwrite]
 ```
+
+Omitted provenance is classified conservatively. Formula queries default to
+`canonical`; `sampled` and `unknown` require an explicit filter, while
+`provenance="all"` is the explicit all-candidates view. Exact `has()` and
+`fetch()` remain provenance-independent.
 
 ## Cache root
 

@@ -12,6 +12,9 @@ Implemented core:
 - geometry-aware content identity;
 - `put`, `has`, `fetch`, `query`, and CLI workflows;
 - standard output reuse for `OUTCAR`, `CONTCAR`, and `vasprun.xml`;
+- provenance-aware ingest with independent INCAR/OUTCAR metadata parsing;
+- canonical-only formula queries by default, with explicit sampled/unknown/all filters;
+- duplicate provenance preflight before CAS writes;
 - metadata query and cache archive support.
 
 A whole-home ingest is an operational data instance, not the acceptance criterion
@@ -19,19 +22,6 @@ for the core project. Random one-off perturbation results are not canonical
 material results.
 
 ## Next
-
-### Provenance and query safety
-
-Track calculation role and quality separately from file completion:
-
-- `canonical`, `sampled`, and `unknown` provenance roles;
-- effective `NSW`, `IBRION`, and `ISIF` values;
-- separate electronic, ionic, and OUTCAR-completion status;
-- explicit handling for MD, phonon/finite-displacement, and sampled data;
-- prevent formula lookup from selecting the newest sampled or unknown row as the
-  representative result.
-
-See [Issue #22](https://github.com/duguex/vasp-cache/issues/22).
 
 ### Identity correctness
 

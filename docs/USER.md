@@ -25,28 +25,28 @@ vasp-cache status
 - 缺少 OUTCAR 正常结束标记 → 跳过；读取或解析异常会报错，由调用方处理。
 - 超大晶胞（`max_abc > 25` Å，可配）→ 跳过。
 - **不存 POTCAR**；身份默认也不依赖 POTCAR 文件（mapping gen 4）。
-- 同一 `content_hash` 再 `put` → **覆盖元数据**，CAS 按内容去重（不会变成两条逻辑结果）。
+- 同一 `content_hash` 再 `put` 会按 provenance 权限合并：自动/`unknown` 不会降级显式角色；同级的不同非 `unknown` 显式角色会拒绝并保持原条目不变。
 
 ## 日常命令
 
 ```bash
 export VASP_CACHE_ROOT=/mnt/shared/vasp_cache   # 若环境未指默认根
-
-# 单目录入库
-vasp-cache put /path/to/complete_calc
+# 单目录入库；显式声明角色可覆盖自动分类
+vasp-cache put /path/to/complete_calc --provenance canonical
 
 # 批量扫树（所有 OUTCAR 父目录）
-vasp-cache put -r /path/to/project_tree
+vasp-cache put -r /path/to/project_tree --provenance sampled
 
 # 是否命中 / 恢复标准输出（仅 exact identity 命中）
 vasp-cache has   /path/to/inputs
 vasp-cache fetch /path/to/inputs
 
-# 按化学式检索（exact match，默认只要可入库）
+ # 按化学式检索；默认只返回 canonical
 vasp-cache query --formula SiC
 vasp-cache query -f ZnO -n 10
 vasp-cache query --functional PBE --limit 20
-vasp-cache query -f GaN --json          # 全字段 JSON
+vasp-cache query -f GaN --provenance sampled --json
+vasp-cache query -f GaN --provenance all --json
 
 vasp-cache content-hash /path/to/inputs
 vasp-cache mapping show
@@ -61,7 +61,7 @@ Python：
 ```python
 from vasp_cache import put, has, fetch, query, stats
 
-put("/path/to/calc")
+put("/path/to/calc", provenance="canonical")
 has("/path/to/inputs")
 fetch("/path/to/inputs")
 query(formula="SiC", limit=20)

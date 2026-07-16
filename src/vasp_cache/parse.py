@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 import re as _re
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ def _extract_tags(
 
     Ported from ``vasp_sop.core.cache._extract_tags``.
     """
-    from pymatgen.io.vasp.inputs import Incar, Kpoints
+    from pymatgen.io.vasp.inputs import Kpoints
 
     tags: list[str] = []
 
@@ -120,16 +120,97 @@ def _extract_tags(
 # ---------------------------------------------------------------------------
 
 
+Provenance = Literal["canonical", "sampled", "unknown"]
+
+
+def _as_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_run_metadata(src_dir: Path) -> dict[str, Any]:
+    """Parse effective INCAR values and conservative OUTCAR statuses."""
+    metadata: dict[str, Any] = {
+        "outcar_complete": None,
+        "electronic_converged": None,
+        "ionic_converged": None,
+        "nsw": None,
+        "ibrion": None,
+        "isif": None,
+        "provenance": "unknown",
+    }
+
+    outcar_path = src_dir / "OUTCAR"
+    if outcar_path.is_file():
+        tail_size = 65536
+        file_size = outcar_path.stat().st_size
+        offset = max(0, file_size - tail_size)
+        with open(outcar_path, "rb") as f:
+            f.seek(offset)
+            text = f.read().decode("utf-8", errors="replace")
+        lower = text.lower()
+        metadata["outcar_complete"] = "general timing and accounting" in lower
+        if "ediff is reached" in lower:
+            metadata["electronic_converged"] = True
+        elif "maximum number of electronic steps reached" in lower:
+            metadata["electronic_converged"] = False
+        if "reached required accuracy" in lower:
+            metadata["ionic_converged"] = True
+
+    incar_path = src_dir / "INCAR"
+    if not incar_path.is_file():
+        incar: dict[str, Any] = {}
+    else:
+        try:
+            from pymatgen.io.vasp.inputs import Incar
+
+            incar = dict(Incar.from_file(str(incar_path)))
+        except Exception as exc:
+            logger.debug("INCAR parse failed for %s: %s", src_dir, exc)
+            return metadata
+
+    raw_nsw = incar.get("NSW", 0)
+    nsw = _as_int(raw_nsw)
+    if nsw is None:
+        return metadata
+    raw_ibrion = incar.get("IBRION")
+    ibrion = _as_int(raw_ibrion)
+    if ibrion is None and raw_ibrion is None:
+        ibrion = -1 if nsw <= 0 else 0
+    if ibrion is None:
+        return metadata
+    lhfcalc = bool(incar.get("LHFCALC", False))
+    raw_isif = incar.get("ISIF")
+    isif = _as_int(raw_isif)
+    if isif is None and raw_isif is None:
+        isif = 0 if ibrion == 0 or lhfcalc else 2
+    if isif is None:
+        return metadata
+
+    metadata.update({"nsw": nsw, "ibrion": ibrion, "isif": isif})
+    nfree = _as_int(incar.get("NFREE", 0))
+    if ibrion in (0, 3) and nsw > 0:
+        metadata["provenance"] = "sampled"
+    elif ibrion in (5, 6, 7, 8) or (nfree is not None and nfree >= 2):
+        metadata["provenance"] = "sampled"
+    elif ibrion in (1, 2) and nsw > 0:
+        metadata["provenance"] = "canonical"
+    return metadata
+
+
 def summarize_calc(src_dir: Path) -> dict[str, Any]:
     """Parse a VASP calculation directory and return a summary dict.
 
     Tries ``emmet.core.tasks.TaskDoc.from_directory`` first; falls back to
     direct regex + pymatgen parsing when TaskDoc is unavailable or fails.
 
-    Returns keys:
-        converged, total_energy, bandgap, formula_pretty, nsites,
-        space_group, a, b, c, max_abc, calc_type, tags, parsed_by
+    Returns physical summary fields plus independent run metadata:
+        outcar_complete, electronic_converged, ionic_converged, nsw, ibrion,
+        isif, provenance
     """
+    run_metadata = _parse_run_metadata(src_dir)
     outcar_path = src_dir / "OUTCAR"
     if not outcar_path.is_file():
         return {
@@ -145,6 +226,7 @@ def summarize_calc(src_dir: Path) -> dict[str, Any]:
             "max_abc": 0.0,
             "calc_type": None,
             "tags": "",
+            **run_metadata,
             "parsed_by": "fallback",
         }
 
@@ -171,6 +253,7 @@ def summarize_calc(src_dir: Path) -> dict[str, Any]:
             "max_abc": max(a, b, c),
             "calc_type": str(doc.calc_type) if doc.calc_type else None,
             "tags": _tags_from_doc(doc),
+            **run_metadata,
             "parsed_by": "TaskDoc",
         }
         if result["total_energy"] is not None:
@@ -182,8 +265,8 @@ def summarize_calc(src_dir: Path) -> dict[str, Any]:
 
     # -- Regex fallback ---------------------------------------------------
     from pymatgen.io.vasp.inputs import Incar, Kpoints
-    from pymatgen.io.vasp.outputs import Outcar  # noqa: F401 — keep importable
     from pymatgen.core.structure import Structure
+    from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
     # Tail-read OUTCAR for bounded memory (files can be GB)
     tail_size = 65536  # 64 KB
     file_size = outcar_path.stat().st_size
@@ -245,6 +328,7 @@ def summarize_calc(src_dir: Path) -> dict[str, Any]:
         "max_abc": max(a, b, c),
         "calc_type": None,
         "tags": tags,
+        **run_metadata,
         "parsed_by": "regex",
     }
 
