@@ -96,6 +96,28 @@ def test_preflight_preserves_explicit_role(cache_root: Path):
     assert resolved == ("canonical", "explicit")
 
 
+def test_same_hash_inferred_role_conflict_preserves_entry(cache_root: Path):
+    _reset_project()
+    meta.upsert_entry(
+        cache_root,
+        content_hash="same-inferred",
+        objects={"OUTCAR": "digest"},
+        formula="Si",
+        provenance="canonical",
+        provenance_source="inferred",
+    )
+
+    with pytest.raises(ProvenanceConflictError):
+        meta.preflight_provenance(
+            cache_root, "same-inferred", "sampled", "inferred"
+        )
+
+    entry = meta.get_entry(cache_root, "same-inferred")
+    assert entry is not None
+    assert entry["provenance"] == "canonical"
+    assert entry["provenance_source"] == "inferred"
+
+
 def test_same_hash_automatic_ingest_does_not_downgrade_explicit(
     cache_root: Path, tmp_path: Path
 ):
