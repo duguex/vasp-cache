@@ -31,6 +31,17 @@ while IFS= read -r -d '' outcar; do
 done
 
 printf 'Required creation policy: umask 022\n'
-printf 'After the whole-home writer exits, run as %s:\n' "$INGEST_USER"
-printf 'sudo -u %s env VASP_CACHE_ROOT=%s python3 /home/duguex/vasp_cache/scripts/reingest_tree.py %s --cache-root %s --log %s/logs/reingest_c606.log --errors-json %s/logs/reingest_c606_errors.json\n' \
-    "$INGEST_USER" "$CACHE_ROOT" "$ROOT" "$CACHE_ROOT" "$CACHE_ROOT" "$CACHE_ROOT"
+printf 'After the whole-home writer exits, run as %q:\n' "$INGEST_USER"
+printf 'sudo -u '
+printf '%q' "$INGEST_USER"
+printf ' env VASP_CACHE_ROOT='
+printf '%q' "$CACHE_ROOT"
+printf ' python3 /home/duguex/vasp_cache/scripts/reingest_tree.py '
+printf '%q' "$ROOT"
+printf ' --cache-root '
+printf '%q' "$CACHE_ROOT"
+printf ' --log '
+printf '%q' "$CACHE_ROOT/logs/reingest_c606.log"
+printf ' --errors-json '
+printf '%q' "$CACHE_ROOT/logs/reingest_c606_errors.json"
+printf '\n'
