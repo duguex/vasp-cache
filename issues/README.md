@@ -24,6 +24,7 @@ Local markdown trackers + GitHub: https://github.com/duguex/vasp-cache/issues
 | [0018](0018-ie-migrate-e2e-tests.md) | [#19](https://github.com/duguex/vasp-cache/issues/19) | I/E/M E2E tests | P0 |
 | [0019](0019-jsonstore-no-auto-migrate-doc.md) | [#20](https://github.com/duguex/vasp-cache/issues/20) | Doc: no JSONStore auto-migrate | P1 |
 | [0020](0020-put-conflict-policy.md) | [#21](https://github.com/duguex/vasp-cache/issues/21) | put conflict policy (key same, value differs) | P0 |
+| [0021](0021-sampled-single-point-policy.md) | [#22](https://github.com/duguex/vasp-cache/issues/22) | Classify and guard unprovenanced sampled single points | P1 |
 
 Labels: `P0` / `P1` / `P2`, plus `identity` / `ops` / `enhancement` / `documentation`.
 
