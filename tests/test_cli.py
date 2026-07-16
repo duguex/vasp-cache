@@ -6,6 +6,7 @@ from pathlib import Path
 
 from conftest import write_complete_calc, write_minimal_inputs
 from vasp_cache.cli import main
+from vasp_cache.api import query
 from vasp_cache.paths import _reset_project
 
 
@@ -47,3 +48,29 @@ def test_cli_query_defaults_canonical_and_all_opt_in(
     assert main(["query", "--formula", "Si", "--provenance", "all", "--json"]) == 0
     all_rows = __import__("json").loads(capsys.readouterr().out)
     assert {row["provenance"] for row in all_rows} == {"canonical", "sampled"}
+
+
+def test_cli_recursive_put_provenance_applies_to_all_entries(
+    cache_root: Path, tmp_path: Path
+):
+    _reset_project()
+    root = tmp_path / "tree"
+    write_complete_calc(root / "first")
+    second = write_complete_calc(root / "second")
+    (second / "KPOINTS").write_text(
+        (second / "KPOINTS").read_text().replace("4 4 4", "3 3 3")
+    )
+
+    assert main(
+        ["put", "-r", "--provenance", "sampled", str(root)]
+    ) == 0
+
+    sampled_rows = query(
+        formula="Si", provenance="sampled", converged_only=False, limit=10
+    )
+    all_rows = query(formula="Si", provenance="all", converged_only=False, limit=10)
+    assert len(sampled_rows) == 2
+    assert {row["provenance"] for row in sampled_rows} == {"sampled"}
+    assert {row["content_hash"] for row in all_rows} >= {
+        row["content_hash"] for row in sampled_rows
+    }
