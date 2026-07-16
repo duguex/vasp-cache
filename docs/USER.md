@@ -21,8 +21,8 @@ vasp-cache status
 
 ## 入库规则（重要）
 
-- **仅收敛**计算会 `put` 成功（OUTCAR 需完整结束标记）。
-- 未收敛 → 跳过（不入库）。
+- **OUTCAR 正常结束且可入库**的计算会 `put` 成功（不等同于电子或离子收敛）。
+- 缺少 OUTCAR 正常结束标记 → 跳过；读取或解析异常会报错，由调用方处理。
 - 超大晶胞（`max_abc > 25` Å，可配）→ 跳过。
 - **不存 POTCAR**；身份默认也不依赖 POTCAR 文件（mapping gen 4）。
 - 同一 `content_hash` 再 `put` → **覆盖元数据**，CAS 按内容去重（不会变成两条逻辑结果）。
@@ -38,11 +38,11 @@ vasp-cache put /path/to/complete_calc
 # 批量扫树（所有 OUTCAR 父目录）
 vasp-cache put -r /path/to/project_tree
 
-# 是否命中 / 恢复 OUTCAR·CONTCAR
+# 是否命中 / 恢复标准输出（仅 exact identity 命中）
 vasp-cache has   /path/to/inputs
 vasp-cache fetch /path/to/inputs
 
-# 按化学式检索（exact match，默认只要收敛）
+# 按化学式检索（exact match，默认只要可入库）
 vasp-cache query --formula SiC
 vasp-cache query -f ZnO -n 10
 vasp-cache query --functional PBE --limit 20
@@ -51,6 +51,10 @@ vasp-cache query -f GaN --json          # 全字段 JSON
 vasp-cache content-hash /path/to/inputs
 vasp-cache mapping show
 ```
+
+`fetch` 只恢复 `OUTCAR`、`CONTCAR`、`vasprun.xml` 等标准输出，不会自动
+生成新的 `INCAR`、`KPOINTS` 或 `POTCAR`。相关计算需要工作流自行定位或
+重建起始结构和输入。
 
 Python：
 
@@ -63,6 +67,15 @@ fetch("/path/to/inputs")
 query(formula="SiC", limit=20)
 stats()
 ```
+
+## 应用场景与边界
+
+- **已支持：**相同输入 identity 的计算只运行一次，后续通过 `has/fetch`
+  复用标准输出。
+- **规划/部分支持：**相关计算可参考已有条目的结构和元数据，但当前没有
+  公开的按 `content_hash` 导出启动结构/目录的接口；改变 INCAR 或 KPOINTS
+  后不会自动命中原 cache。
+- 随机、无 provenance 的扰动单点不作为 canonical 材料结果。
 
 ## 增量添加
 

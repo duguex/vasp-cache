@@ -10,6 +10,22 @@ See `docs/DESIGN-storage-v2.md`. **User guide:** [`docs/USER.md`](docs/USER.md).
 
 See [ROADMAP.md](ROADMAP.md) for current positioning and future development directions.
 
+## Applications
+
+### Current: exact calculation reuse
+
+The primary supported use is to run one deterministic VASP calculation once,
+then reuse its standard outputs and metadata across workflows and projects when
+the input identity matches exactly.
+
+### Planned/partial: related-calculation bootstrap
+
+An existing calculation may be useful as a starting reference for a related
+task, but this is not automatic in the current API. A changed INCAR or KPOINTS
+normally produces a different identity. `fetch()` restores standard outputs
+only; it does not generate new INCAR, KPOINTS, or POTCAR inputs. The workflow
+must locate or reconstruct the starting structure and create the new inputs.
+
 ## Install
 
 ```bash

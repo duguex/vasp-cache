@@ -48,11 +48,13 @@ See [Issues #2–#6](https://github.com/duguex/vasp-cache/issues) and
 
 ### Related-calculation bootstrap (conditional)
 
-Only pursue this if a real workflow needs it. The possible minimum is an
-explicit content-hash/object export operation for obtaining a reference
-`CONTCAR` or standard output. It must not pretend to generate new INCAR,
-KPOINTS, or POTCAR inputs, and it must not silently turn a related calculation
-into an exact cache hit.
+This is a planned/partial capability, not current automatic behavior. A changed
+INCAR or KPOINTS normally has a different identity, and `fetch()` only restores
+standard outputs. It does not generate new INCAR, KPOINTS, or POTCAR inputs.
+The workflow must locate or reconstruct the starting structure and create the
+new inputs. If implemented, the minimum should be an explicit content-hash/
+object export operation for a reference `CONTCAR` or standard output; it must
+not silently turn a related calculation into an exact cache hit.
 
 ## Later
 
