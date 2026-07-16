@@ -211,27 +211,33 @@ object set unchanged.
 
 ## Query behavior
 
-Extend metadata filtering with:
+Extend metadata filtering with an explicit filter type:
 
 ```python
-query(..., provenance: Provenance | None = None)
+ProvenanceFilter = Literal["canonical", "sampled", "unknown", "all"]
+
+query(..., provenance: ProvenanceFilter = "canonical")
 ```
 
-`query()` remains a candidate-listing API and returns all provenance classes
-unless the caller supplies a filter. Returned rows always expose `provenance`.
-The CLI query command accepts `--provenance {canonical,sampled,unknown}` and
-prints the provenance in JSON and compact output.
+`query()` defaults to `canonical` for every query shape, including
+`query(formula=...)`. Returned rows always expose `provenance`. Non-canonical
+rows require an explicit `provenance="sampled"`, `provenance="unknown"`, or
+`provenance="all"` argument; there is no implicit all-provenance mode.
 
-Extend formula representative lookup with the same filter, defaulting to
-canonical:
+The CLI query command accepts
+`--provenance {canonical,sampled,unknown,all}`, defaults to `canonical`, and
+prints provenance in JSON and compact output. Therefore the common
+`vasp-cache query --formula GaN` command cannot select a sampled or unknown row
+without an explicit opt-in.
+
+Formula representative lookup uses the same filter and defaults to canonical:
 
 ```python
 get_meta(..., formula=formula, provenance="canonical")
 ```
 
-A caller must pass `provenance="sampled"`, `provenance="unknown"`, or an
-explicit all-candidates mode to select non-canonical data. Exact lookup by
-input directory or content hash ignores this representative policy and remains
+`provenance="all"` is the explicit all-candidates mode. Exact lookup by input
+directory or content hash ignores this representative policy and remains
 usable for every stored row.
 
 ## Error and compatibility behavior
@@ -260,8 +266,8 @@ Add deterministic tests for:
 7. Explicit `canonical`, `sampled`, and `unknown` precedence over inference.
 8. Unmarked `NSW=0` classified as unknown without rejecting the cache entry.
 9. Separate OUTCAR, electronic, and ionic status fields.
-10. Canonical-only default formula representative selection.
-11. Explicit provenance query filtering.
+10. Canonical-only default formula representative selection in both API and CLI.
+11. Explicit provenance query filtering, including `provenance="all"`.
 12. Same-hash re-ingest preserves an explicit role when the incoming role is
     automatic or `unknown`.
 13. Same-hash explicit role conflict fails before CAS writes and leaves no
