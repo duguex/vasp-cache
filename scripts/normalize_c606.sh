@@ -13,22 +13,46 @@ if (( $# > 3 )); then
     printf 'usage: %s [ROOT] [INGEST_USER] [CACHE_ROOT]\n' "$0" >&2
     exit 2
 fi
+ROOT=$(realpath -e -- "$ROOT")
+chmod 755 -- "$ROOT"
 
 umask 022
-printf 'Normalize VASP cache files under %s\n' "$ROOT"
+printf 'Normalize shared-data permissions under %s\n' "$ROOT"
+printf 'Protected: hidden paths, credentials, tokens, keys, and PEM files.\n'
 printf 'Precondition: stop all writers before running this wrapper.\n'
 
-find "$ROOT" -type f -name OUTCAR -print0 |
-while IFS= read -r -d '' outcar; do
-    calc_dir=${outcar%/*}
-    chmod 755 -- "$calc_dir"
-    for name in OUTCAR CONTCAR vasprun.xml INCAR POSCAR KPOINTS; do
-        path="$calc_dir/$name"
-        if [[ -f "$path" && ! -L "$path" ]]; then
-            chmod 644 -- "$path"
-        fi
-    done
-done
+PROTECTED=(
+    ! -path "$ROOT"
+    \(
+    -name '.*'
+    -o -name 'credentials'
+    -o -name 'credential'
+    -o -name '*token*'
+    -o -name '*.pem'
+    -o -name '*.key'
+    -o -name 'id_rsa*'
+    \)
+)
+find "$ROOT" \( "${PROTECTED[@]}" \) -prune -o \
+    -type d -exec chmod 755 -- {} \;
+find "$ROOT" \( "${PROTECTED[@]}" \) -prune -o \
+    -type f ! -perm /111 -print0 |
+    xargs -0 -r chmod 644 --
+find "$ROOT" \( "${PROTECTED[@]}" \) -prune -o \
+    -type f -perm /111 -print0 |
+    xargs -0 -r chmod 755 --
+if ! remaining=$(find "$ROOT" \( "${PROTECTED[@]}" \) -prune -o \
+    \( -type d ! -perm 755 \
+    -o -type f ! -perm /111 ! -perm 644 \
+    -o -type f -perm /111 ! -perm 755 \) \
+    -print -quit); then
+    printf 'permission verification scan failed\n' >&2
+    exit 1
+fi
+if [[ -n "$remaining" ]]; then
+    printf 'permission verification failed: %s\n' "$remaining" >&2
+    exit 1
+fi
 
 printf 'Required creation policy: umask 022\n'
 printf 'After the whole-home writer exits, run as %q:\n' "$INGEST_USER"
