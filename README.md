@@ -6,6 +6,10 @@ Backend: **CAS + SQLite** (`cas/` objects + `meta.sqlite`). Hard identity is a t
 
 See `docs/DESIGN-storage-v2.md`. **User guide:** [`docs/USER.md`](docs/USER.md). **Identity contract:** [`docs/IDENTITY.md`](docs/IDENTITY.md). Legacy signac trees migrate with `scripts/migrate_signac_to_cas.py`.
 
+## Roadmap
+
+See [ROADMAP.md](ROADMAP.md) for current positioning and future development directions.
+
 ## Install
 
 ```bash
