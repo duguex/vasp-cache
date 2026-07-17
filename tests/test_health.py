@@ -79,6 +79,7 @@ def test_health_fast_report_is_read_only_and_separates_metadata(cache_root: Path
     assert report["metadata"]["missing_convergence"] == 1
     assert report["metadata"]["missing_objects"] == 0
     assert report["cas"]["scan_performed"] is False
+    assert report["cas"]["physical_referenced_objects"] is None
     assert report["energy"]["missing"] == 1
     assert _snapshot_tree(cache_root) == before
     assert list(report) == ["schema_version", "report_timestamp", "cache_root", "metadata", "cas", "energy", "scan"]
@@ -144,7 +145,9 @@ def test_health_cas_scan_reports_missing_orphan_and_shared_references(cache_root
     assert report["cas"]["missing_references"] == 1
     assert report["cas"]["orphan_objects"] == 1
     assert report["cas"]["shared_reference_objects"] == 1
-    assert report["cas"]["referenced_objects"] == 1
+    assert report["cas"]["referenced_objects"] == 2
+    assert report["cas"]["physical_referenced_objects"] == 1
+    assert report["cas"]["referenced_bytes"] == len(b"shared")
     assert report["cas"]["limited"] is False
     assert report["cas"]["path_mismatches"] == 0
     assert report["cas"]["physical_objects"] == 2
@@ -167,19 +170,33 @@ def test_health_cas_scan_detects_duplicate_digest_path(cache_root: Path):
     assert report["cas"]["path_mismatches"] == 1
 
 
-def test_health_cas_scan_limit_reports_progress_and_is_bounded(cache_root: Path):
+def test_health_cas_scan_limit_reports_progress_and_partial_reference_fields(cache_root: Path):
     _make_fixture(cache_root)
     seen: list[int] = []
     report = health_report(cache_root, scan_cas=True, max_objects=1, progress=seen.append)
     assert report["cas"]["limited"] is True
-    assert seen and seen[-1] == 1
+    assert seen == [1]
     assert report["cas"]["physical_objects"] == 1
-    assert report["cas"]["referenced_objects"] is None
+    assert report["cas"]["referenced_objects"] == 2
+    assert report["cas"]["physical_referenced_objects"] is None
     assert report["cas"]["referenced_bytes"] is None
     assert report["cas"]["missing_references"] is None
     assert report["cas"]["orphan_objects"] is None
     assert report["cas"]["orphan_bytes"] is None
 
+
+def test_health_cas_scan_zero_limit_reports_zero_progress(cache_root: Path):
+    _make_fixture(cache_root)
+    seen: list[int] = []
+    report = health_report(cache_root, scan_cas=True, max_objects=0, progress=seen.append)
+    assert seen == [0]
+    assert report["cas"]["physical_objects"] == 0
+    assert report["cas"]["limited"] is True
+    assert report["cas"]["physical_referenced_objects"] is None
+    assert report["cas"]["referenced_bytes"] is None
+    assert report["cas"]["missing_references"] is None
+    assert report["cas"]["orphan_objects"] is None
+    assert report["cas"]["orphan_bytes"] is None
 
 def test_health_missing_root_is_zero_and_does_not_create_it(tmp_path: Path):
     root = tmp_path / "missing-health-root"
