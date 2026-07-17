@@ -51,6 +51,24 @@ def test_rehash_inventory_reports_collision_without_mutation(
     assert meta.get_entry(cache_root, "old-second") is not None
     assert meta.get_entry(cache_root, group["new_hash"]) is None
 
+def test_rehash_inventory_reports_missing_required_cas_object(
+    cache_root: Path, tmp_path: Path
+):
+    _reset_project()
+    calc = write_complete_calc(tmp_path / "missing-required")
+    objects = _seed_old_entry(cache_root, calc, "old-missing-required")
+    cas.object_path(cache_root, objects["POSCAR"]).unlink()
+
+    inventory = inventory_root(cache_root)
+
+    assert inventory["errors"] == [
+        {
+            "old_hash": "old-missing-required",
+            "error": "required CAS object missing: POSCAR",
+        }
+    ]
+    assert not inventory["safe"]
+    assert not inventory["collisions"]
 
 def test_rehash_apply_rewrites_only_safe_group(
     cache_root: Path, tmp_path: Path
