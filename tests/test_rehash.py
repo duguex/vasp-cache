@@ -121,6 +121,25 @@ def test_rehash_inventory_preserves_metadata_files(cache_root: Path, tmp_path: P
 
     assert _metadata_files_snapshot(cache_root) == before
 
+def test_rehash_inventory_does_not_reopen_write_connection(
+    cache_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    calc = write_complete_calc(tmp_path / "same-connection")
+    _seed_old_entry(cache_root, calc, "old-same-connection")
+    meta.close_all()
+
+    def fail_write_connection(*args, **kwargs):
+        raise AssertionError("inventory must not open a write-capable connection")
+
+    monkeypatch.setattr(meta, "connect", fail_write_connection)
+    monkeypatch.setattr(meta, "get_entry", fail_write_connection)
+
+    inventory = inventory_root(cache_root)
+
+    assert inventory["rows"] == 1
+    assert inventory["errors"] == []
+    assert inventory["safe"]
+
 
 def test_rehash_inventory_rejects_negative_limit(cache_root: Path):
     with pytest.raises(ValueError, match="limit must be non-negative"):
