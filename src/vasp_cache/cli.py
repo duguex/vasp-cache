@@ -233,6 +233,16 @@ def main(argv: list[str] | None = None) -> int:
     p_objects.add_argument("--orphans-only", action="store_true", help="show only unreferenced objects")
     _add_output_flags(p_objects, collection=True)
 
+    p_health = inspect_sub.add_parser(
+        "health", help="Show read-only metadata and optional CAS health"
+    )
+    p_health.add_argument("--scan-cas", action="store_true", help="scan physical CAS objects")
+    p_health.add_argument("--max-objects", type=int, default=None)
+    p_health.add_argument("--energy-min", type=float, default=None)
+    p_health.add_argument("--energy-max", type=float, default=None)
+    p_health.add_argument("--json", action="store_true", help="print the complete JSON report")
+
+
     sub.add_parser("status", help="Show cache stats")
 
     p_web = sub.add_parser(
@@ -370,6 +380,39 @@ def main(argv: list[str] | None = None) -> int:
         from vasp_cache.inspection import entry, entries, objects, overview, summary
         from vasp_cache.paths import cache_root
         root = cache_root()
+
+        if args.inspect_cmd == "health":
+            from vasp_cache.health import health_report
+
+            progress = None
+            if args.scan_cas:
+                def progress(count: int) -> None:
+                    print(f"CAS objects scanned: {count}", file=sys.stderr)
+
+            payload = health_report(
+                root,
+                scan_cas=args.scan_cas,
+                max_objects=args.max_objects,
+                energy_min=args.energy_min,
+                energy_max=args.energy_max,
+                progress=progress,
+            )
+            if args.json:
+                print(json.dumps(payload, indent=2, default=str, sort_keys=True))
+            else:
+                metadata = payload["metadata"]
+                cas_report = payload["cas"]
+                print(
+                    f"health: mode={payload['scan']['mode']} "
+                    f"entries={metadata['entries']} missing_objects={metadata['missing_objects']}"
+                )
+                if args.scan_cas:
+                    print(
+                        f"CAS: physical={cas_report['physical_objects']} "
+                        f"missing={cas_report['missing_references']} "
+                        f"orphans={cas_report['orphan_objects']}"
+                    )
+            return 0
 
         if args.inspect_cmd == "overview":
             payload = overview(root, top_formulas=args.top_formulas)

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from pathlib import Path
+
 import pytest
 
 from conftest import write_complete_calc, write_minimal_inputs
@@ -245,4 +248,83 @@ def test_cli_web_warns_for_non_loopback_host_and_help_is_side_effect_free(
     assert "unauthenticated" in help_output
     assert "beyond localhost" in help_output
     assert "lan" in help_output
+    assert not root.exists()
+
+def test_cli_inspect_health_forwards_options_and_keeps_json_clean(
+    tmp_path: Path, monkeypatch, capsys
+):
+    root = tmp_path / "health-root"
+    monkeypatch.setenv("VASP_CACHE_ROOT", str(root))
+    _reset_project()
+    calls = {}
+
+    def fake_health_report(cache_root, **kwargs):
+        calls["root"] = cache_root
+        calls.update(kwargs)
+        if kwargs["progress"] is not None:
+            kwargs["progress"](2)
+        return {"z": 1, "a": 2}
+
+    import vasp_cache.health as health
+
+    monkeypatch.setattr(health, "health_report", fake_health_report)
+    assert main(
+        [
+            "inspect",
+            "health",
+            "--scan-cas",
+            "--max-objects",
+            "7",
+            "--energy-min",
+            "-5.5",
+            "--energy-max",
+            "2.5",
+            "--json",
+        ]
+    ) == 0
+    captured = capsys.readouterr()
+    assert json.loads(captured.out) == {"a": 2, "z": 1}
+    assert captured.out.index('"a"') < captured.out.index('"z"')
+    assert "2" in captured.err
+    assert calls == {
+        "root": root.resolve(),
+        "scan_cas": True,
+        "max_objects": 7,
+        "energy_min": -5.5,
+        "energy_max": 2.5,
+        "progress": calls["progress"],
+    }
+
+
+def test_cli_inspect_health_absent_root_is_nonmutating_and_help_is_available(
+    tmp_path: Path, monkeypatch, capsys
+):
+    root = tmp_path / "missing-health-root"
+    monkeypatch.setenv("VASP_CACHE_ROOT", str(root))
+    _reset_project()
+    assert main(["inspect", "health", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["metadata"]["entries"] == 0
+    assert payload["cas"]["scan_performed"] is False
+    assert not root.exists()
+
+    with pytest.raises(SystemExit):
+        main(["inspect", "health", "--help"])
+    assert "--scan-cas" in capsys.readouterr().out
+
+
+def test_audit_cache_script_metadata_only_smoke(tmp_path: Path):
+    root = tmp_path / "missing-script-root"
+    script = Path(__file__).parents[1] / "scripts" / "audit_cache.py"
+    result = subprocess.run(
+        [sys.executable, str(script), "--root", str(root), "--json"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["scan"]["mode"] == "metadata"
+    assert payload["cas"]["scan_performed"] is False
+    assert result.stderr == ""
     assert not root.exists()
