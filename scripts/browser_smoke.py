@@ -154,7 +154,17 @@ def run_smoke(url: str) -> None:
 
         # Clearing immediately after typing must cancel the pending debounced filter load.
         page.locator("#formula").fill("NoSuchFormula")
-        page.locator("#clear-filters").click()
+        with page.expect_response(
+            lambda response: response.request.method == "GET"
+            and urlparse(response.url).path == "/api/entries"
+            and "formula" not in parse_qs(urlparse(response.url).query)
+        ) as clear_response:
+            page.locator("#clear-filters").click()
+        response = clear_response.value
+        assert response.ok
+        query = parse_qs(urlparse(response.url).query)
+        assert "formula" not in query
+        assert query.get("provenance") == ["canonical"]
         page.wait_for_function("document.querySelectorAll('.catalog-row').length > 0 && document.querySelector('.catalog-row').dataset.hash === 'hash-00' && !document.querySelector('#catalog-state').textContent.includes('NoSuchFormula')")
         assert "formula=" not in page.url
         assert "provenance=canonical" in page.url
@@ -172,7 +182,16 @@ def run_smoke(url: str) -> None:
         # Restore the catalog, then paginate through history.replaceState only.
         page.locator("#clear-filters").click()
         page.wait_for_function("!document.querySelector('#next-page').disabled && document.querySelector('#page-status').textContent.trim() === 'PAGE 1'")
-        page.locator("#next-page").click()
+        page.locator("#formula").fill("Si")
+        with page.expect_response(
+            lambda response: response.request.method == "GET"
+            and urlparse(response.url).path == "/api/entries"
+            and parse_qs(urlparse(response.url).query).get("formula") == ["Si"]
+            and parse_qs(urlparse(response.url).query).get("offset") == ["25"]
+        ) as next_response:
+            page.locator("#next-page").click()
+        response = next_response.value
+        assert response.ok
         page.wait_for_function("document.querySelector('#page-status').textContent.trim() === 'PAGE 2' && document.querySelector('.catalog-row')?.dataset.hash === 'hash-25'")
         assert len(load_events) == initial_load_count, load_events
         assert urlparse(page.url).path == urlparse(url).path

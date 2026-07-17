@@ -91,6 +91,16 @@
     });
   }
 
+  function readFilterControls() {
+    state.filters = {};
+    FILTER_NAMES.forEach((name) => {
+      const input = els.filters.elements.namedItem(name);
+      const value = input ? input.value.trim() : '';
+      if (value) state.filters[name] = value;
+    });
+    if (!state.filters.provenance) state.filters.provenance = 'canonical';
+  }
+
   function setStatus(message, tone = 'neutral') {
     els.status.innerHTML = message ? `<div class="status status--${esc(tone)}"><span class="status__mark" aria-hidden="true">${tone === 'error' ? '!' : 'i'}</span><span>${esc(message)}</span></div>` : '';
   }
@@ -125,6 +135,7 @@
       </button>`).join('');
     els.families.querySelectorAll('[data-formula]').forEach((button) => {
       button.addEventListener('click', () => {
+        readFilterControls();
         handleFilterChange.cancel();
         state.filters.formula = button.dataset.formula;
         state.offset = 0;
@@ -257,12 +268,7 @@
   };
 
   const handleFilterChange = debounce(() => {
-    state.filters = {};
-    FILTER_NAMES.forEach((name) => {
-      const value = els.filters.elements.namedItem(name).value.trim();
-      if (value) state.filters[name] = value;
-    });
-    if (!state.filters.provenance) state.filters.provenance = 'canonical';
+    readFilterControls();
     state.offset = 0;
     writeUrlState();
     loadEntries();
@@ -414,11 +420,13 @@
     state.filters = { provenance: 'canonical' }; state.offset = 0; syncControls(); writeUrlState(); loadEntries();
   });
   els.previous.addEventListener('click', () => {
+    readFilterControls();
     handleFilterChange.cancel();
     if (state.offset <= 0) return;
     state.offset = Math.max(0, state.offset - PAGE_SIZE); writeUrlState(); loadEntries();
   });
   els.next.addEventListener('click', () => {
+    readFilterControls();
     handleFilterChange.cancel();
     if (!state.hasMore) return;
     state.offset += PAGE_SIZE; writeUrlState(); loadEntries();

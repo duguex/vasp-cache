@@ -2,15 +2,18 @@
 
 ## Scope
 
-Stabilized the Materials Atlas filter-clear interaction after `743a259`. The formula filter's debounced handler is now cancellable, and explicit formula-family, clear-filter, previous-page, and next-page loads cancel pending filter work first. Normal debounced input/change behavior, URL synchronization, and read-only API behavior remain unchanged.
+Stabilized the Materials Atlas filter-clear interaction after `743a259`. The formula filter's debounced handler is cancellable, and explicit formula-family, clear-filter, previous-page, and next-page loads cancel pending filter work first. Normal debounced input/change behavior, URL synchronization, and read-only API behavior remain unchanged.
 
 ## Changes
 
 - `src/vasp_cache/web/app.js`
   - Added `debounced.cancel()` to clear a pending timer without invoking the filter callback.
   - Cancel pending filter work before formula-family, clear-filter, and pagination handlers explicitly call `loadEntries()`.
+  - Added synchronous `readFilterControls()` state synchronization so pagination preserves filters typed immediately before clicking Previous/Next, without triggering a second request.
 - `scripts/browser_smoke.py`
-  - Added a deterministic race regression: type an unmatched formula and immediately click Clear, then wait for the expected restored first row and URL state. No arbitrary wait was added.
+  - Added a deterministic clear race regression: type an unmatched formula and immediately click Clear, await the GET `/api/entries` response whose query has no formula and uses canonical provenance, then assert the restored rows and URL state.
+  - Added pagination regression coverage: type `Si` immediately before Next and await the page-2 GET `/api/entries` response with `formula=Si` and `offset=25`.
+  - No arbitrary waits were added.
 
 ## Verification
 
