@@ -93,8 +93,9 @@ vasp-cache web [--root DIR] [--host HOST] [--port PORT]
 ```
 
 默认使用 `VASP_CACHE_ROOT`（或现有默认缓存根），监听 `localhost:8765`，只
-提供固定静态资源和只读元数据 API。若明确使用 `--host 0.0.0.0` 等非回环
-地址，CLI 会打印警告；只有在确实需要局域网访问时才应这样配置。
+提供固定静态资源和只读元数据 API，且不提供身份认证。若明确使用
+`--host 0.0.0.0` 等 localhost 之外的地址，CLI 会打印警告；只有在确实需要
+局域网访问时才应这样配置，因为只读 dashboard 将可被局域网客户端访问。
 
 `fetch` 只恢复 `OUTCAR`、`CONTCAR`、`vasprun.xml` 等标准输出，不会自动
 生成新的 `INCAR`、`KPOINTS` 或 `POTCAR`。相关计算需要工作流自行定位或

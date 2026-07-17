@@ -69,8 +69,9 @@ vasp-cache web [--root DIR] [--host HOST] [--port PORT]
 
 The dashboard defaults to the configured `VASP_CACHE_ROOT`, listens on
 `localhost:8765`, and serves only fixed static assets plus read-only metadata
-APIs. Use `--host 0.0.0.0` (or another non-loopback host) only when LAN access
-is intended; the CLI prints an explicit warning for non-loopback binding.
+APIs. It is unauthenticated. Use `--host 0.0.0.0` (or another host beyond
+localhost) only when LAN access is intended; the CLI prints an explicit warning
+because the read-only dashboard will be reachable by LAN clients.
 
 Omitted provenance is classified conservatively. Formula queries default to
 `canonical`; `sampled` and `unknown` require an explicit filter, while

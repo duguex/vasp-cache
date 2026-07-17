@@ -235,7 +235,14 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("status", help="Show cache stats")
 
-    p_web = sub.add_parser("web", help="Serve the read-only cache dashboard")
+    p_web = sub.add_parser(
+        "web",
+        help="Serve the read-only cache dashboard",
+        description=(
+            "Serve the read-only cache dashboard. The dashboard is unauthenticated; "
+            "binding beyond localhost (for example, --host 0.0.0.0) exposes it to LAN clients."
+        ),
+    )
     p_web.add_argument("--root", type=Path, default=None, help="cache root (default: configured cache root)")
     p_web.add_argument("--host", default="localhost", help="listen host (default: localhost)")
     p_web.add_argument("--port", type=int, default=8765, help="listen port (default: 8765)")
@@ -418,7 +425,7 @@ def main(argv: list[str] | None = None) -> int:
         if not _is_loopback_host(args.host):
             print(
                 f"WARNING: vasp-cache web is listening on non-loopback host {args.host!r}; "
-                "the read-only dashboard will be reachable from the LAN.",
+                "the unauthenticated read-only dashboard will be reachable from the LAN.",
                 file=sys.stderr,
             )
         serve(cache_root=root, host=args.host, port=args.port)

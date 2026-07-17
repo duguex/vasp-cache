@@ -237,3 +237,12 @@ def test_cli_web_warns_for_non_loopback_host_and_help_is_side_effect_free(
     with pytest.raises(SystemExit):
         main(["--help"])
     assert not root.exists()
+    capsys.readouterr()
+    with pytest.raises(SystemExit):
+        main(["web", "--help"])
+    help_output = capsys.readouterr().out.lower()
+    assert "read-only" in help_output
+    assert "unauthenticated" in help_output
+    assert "beyond localhost" in help_output
+    assert "lan" in help_output
+    assert not root.exists()
