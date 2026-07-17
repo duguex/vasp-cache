@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from vasp_cache import health as health_module
 from vasp_cache import cas, meta
 from vasp_cache.health import health_report
 
@@ -80,6 +81,61 @@ def test_health_fast_report_is_read_only_and_separates_metadata(cache_root: Path
     assert report["cas"]["scan_performed"] is False
     assert report["energy"]["missing"] == 1
     assert _snapshot_tree(cache_root) == before
+    assert list(report) == ["schema_version", "report_timestamp", "cache_root", "metadata", "cas", "energy", "scan"]
+    assert report["report_timestamp"].endswith("+00:00")
+
+
+def test_health_reports_malformed_identity_separately(cache_root: Path):
+    _make_fixture(cache_root)
+    meta.upsert_entry(
+        cache_root,
+        content_hash="d" * 64,
+        objects={},
+        key_generation=0,
+        profile_id="",
+        cached_at=4.0,
+    )
+    meta.upsert_entry(
+        cache_root,
+        content_hash="e" * 64,
+        objects={},
+        key_generation="not-an-integer",  # type: ignore[arg-type]
+        profile_id=123,  # type: ignore[arg-type]
+        cached_at=5.0,
+    )
+    report = health_report(cache_root)
+    assert report["metadata"]["missing_identity"] == 1
+    assert report["metadata"]["malformed_identity"] == 2
+    assert len(report["metadata"]["samples"]["malformed_identity"]) == 2
+
+
+def test_health_energy_outlier_samples_stay_bounded_for_large_stream(
+    cache_root: Path, monkeypatch
+):
+    seen_keys: list[str] = []
+    original_add_sample = health_module._add_sample
+
+    def tracking_add_sample(samples, key, record):
+        seen_keys.append(key)
+        original_add_sample(samples, key, record)
+
+    monkeypatch.setattr(health_module, "_add_sample", tracking_add_sample)
+    for index in range(25):
+        meta.upsert_entry(
+            cache_root,
+            content_hash=f"{index + 1:064x}",
+            objects={},
+            total_energy=10.0 + index,
+            key_generation=5,
+            profile_id="default",
+            cached_at=float(index),
+        )
+    report = health_report(cache_root, energy_max=0.0)
+    assert seen_keys.count("energy_outliers") == 25
+    assert len(report["energy"]["samples"]) == 20
+    assert [row["content_hash"] for row in report["energy"]["samples"]] == [
+        f"{index + 1:064x}" for index in range(20)
+    ]
 
 
 def test_health_cas_scan_reports_missing_orphan_and_shared_references(cache_root: Path):
@@ -88,10 +144,27 @@ def test_health_cas_scan_reports_missing_orphan_and_shared_references(cache_root
     assert report["cas"]["missing_references"] == 1
     assert report["cas"]["orphan_objects"] == 1
     assert report["cas"]["shared_reference_objects"] == 1
-    assert report["cas"]["referenced_objects"] == 2
+    assert report["cas"]["referenced_objects"] == 1
     assert report["cas"]["limited"] is False
     assert report["cas"]["path_mismatches"] == 0
     assert report["cas"]["physical_objects"] == 2
+
+
+def test_health_cas_scan_detects_duplicate_digest_path(cache_root: Path):
+    digest = cas.put_bytes(cache_root, b"duplicate")
+    duplicate = cas.cas_root(cache_root) / "zz" / "zz" / digest
+    duplicate.parent.mkdir(parents=True)
+    duplicate.write_bytes(b"duplicate")
+    meta.upsert_entry(
+        cache_root,
+        content_hash="d" * 64,
+        objects={"OUTCAR": digest},
+        key_generation=5,
+        profile_id="default",
+    )
+    report = health_report(cache_root, scan_cas=True)
+    assert report["cas"]["physical_objects"] == 1
+    assert report["cas"]["path_mismatches"] == 1
 
 
 def test_health_cas_scan_limit_reports_progress_and_is_bounded(cache_root: Path):
@@ -101,6 +174,11 @@ def test_health_cas_scan_limit_reports_progress_and_is_bounded(cache_root: Path)
     assert report["cas"]["limited"] is True
     assert seen and seen[-1] == 1
     assert report["cas"]["physical_objects"] == 1
+    assert report["cas"]["referenced_objects"] is None
+    assert report["cas"]["referenced_bytes"] is None
+    assert report["cas"]["missing_references"] is None
+    assert report["cas"]["orphan_objects"] is None
+    assert report["cas"]["orphan_bytes"] is None
 
 
 def test_health_missing_root_is_zero_and_does_not_create_it(tmp_path: Path):

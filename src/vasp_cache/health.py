@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -46,17 +47,21 @@ def _metadata_report(
         "key_generations": {},
         "profile_ids": {},
         "missing_identity": 0,
+        "malformed_identity": 0,
         "samples": {
             "missing_formula": [],
             "missing_energy": [],
             "missing_convergence": [],
             "missing_objects": [],
             "missing_identity": [],
+            "malformed_identity": [],
         },
     }
     references: Counter[str] = Counter()
-    energies: list[float] = []
-    outlier_samples: list[dict[str, Any]] = []
+    energies_min: float | None = None
+    energies_max: float | None = None
+    outlier_samples: dict[str, list[dict[str, Any]]] = {"energy_outliers": []}
+    outlier_count = 0
     missing_energy = 0
     if meta.db_path(root).is_file():
         for record in meta.iter_entries(root):
@@ -70,10 +75,12 @@ def _metadata_report(
                 missing_energy += 1
                 _add_sample(metadata["samples"], "missing_energy", record)
             elif isinstance(energy, (int, float)):
-                energies.append(energy)
+                energies_min = energy if energies_min is None else min(energies_min, energy)
+                energies_max = energy if energies_max is None else max(energies_max, energy)
                 if ((energy_min is not None and energy < energy_min) or
                         (energy_max is not None and energy > energy_max)):
-                    outlier_samples.append(_sample(record))
+                    outlier_count += 1
+                    _add_sample(outlier_samples, "energy_outliers", record)
             if record.get("converged") is None:
                 metadata["missing_convergence"] += 1
                 _add_sample(metadata["samples"], "missing_convergence", record)
@@ -104,21 +111,27 @@ def _metadata_report(
             if profile is not None:
                 profile_key = str(profile)
                 metadata["profile_ids"][profile_key] = metadata["profile_ids"].get(profile_key, 0) + 1
+            generation_valid = isinstance(generation, int) and not isinstance(generation, bool) and generation > 0
+            profile_valid = isinstance(profile, str) and bool(profile.strip())
+            generation_malformed = generation is not None and not generation_valid
+            profile_malformed = profile is not None and not profile_valid
             if generation is None or profile is None:
                 metadata["missing_identity"] += 1
                 _add_sample(metadata["samples"], "missing_identity", record)
+            if generation_malformed or profile_malformed:
+                metadata["malformed_identity"] += 1
+                _add_sample(metadata["samples"], "malformed_identity", record)
 
     for key in ("provenance", "provenance_source", "key_generations", "profile_ids"):
         metadata[key] = dict(sorted(metadata[key].items()))
-    outlier_samples.sort(key=lambda value: str(value.get("content_hash") or ""))
     energy = {
-        "min": min(energies) if energies else None,
-        "max": max(energies) if energies else None,
+        "min": energies_min,
+        "max": energies_max,
         "missing": missing_energy,
         "configured_min": energy_min,
         "configured_max": energy_max,
-        "outliers": len(outlier_samples),
-        "samples": outlier_samples[:_SAMPLE_LIMIT],
+        "outliers": outlier_count,
+        "samples": outlier_samples["energy_outliers"],
     }
     return metadata, references, energy
 
@@ -150,7 +163,13 @@ def _scan_cas(
             size = path.stat().st_size
         except OSError:
             size = 0
-        physical[normalized] = (path, size, matches)
+        existing = physical.get(normalized)
+        if existing is None:
+            physical[normalized] = (path, size, matches)
+        else:
+            # Keep one physical byte count per digest, but retain a mismatch if
+            # any duplicate path is non-canonical.
+            physical[normalized] = (existing[0], existing[1], existing[2] and matches)
         count += 1
         if progress is not None:
             progress(count)
@@ -158,15 +177,20 @@ def _scan_cas(
     reference_digests = set(references)
     referenced_physical = physical_digests & reference_digests
     orphan_digests = physical_digests - reference_digests
-    return {
-        "scan_performed": True,
-        "physical_objects": len(physical),
-        "physical_bytes": sum(value[1] for value in physical.values()),
-        "referenced_objects": len(reference_digests),
+    aggregates: dict[str, int | None] = {
+        "referenced_objects": len(referenced_physical),
         "referenced_bytes": sum(physical[digest][1] for digest in referenced_physical),
         "missing_references": len(reference_digests - physical_digests),
         "orphan_objects": len(orphan_digests),
         "orphan_bytes": sum(physical[digest][1] for digest in orphan_digests),
+    }
+    if limited:
+        aggregates = {key: None for key in aggregates}
+    return {
+        "scan_performed": True,
+        "physical_objects": len(physical),
+        "physical_bytes": sum(value[1] for value in physical.values()),
+        **aggregates,
         "shared_reference_objects": sum(count > 1 for count in references.values()),
         "path_mismatches": sum(not value[2] for value in physical.values()),
         "limited": limited,
@@ -205,6 +229,7 @@ def health_report(
         scan = {"mode": "metadata", "max_objects": None}
     return {
         "schema_version": 1,
+        "report_timestamp": datetime.now(timezone.utc).isoformat(),
         "cache_root": str(root),
         "metadata": metadata,
         "cas": cas_report,
