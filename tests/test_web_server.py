@@ -174,3 +174,22 @@ def test_static_routes_are_fixed_and_missing_assets_are_404(tmp_path: Path):
         server.shutdown()
         thread.join(timeout=5)
         server.server_close()
+
+def test_static_assets_have_dashboard_content_and_mime_types(tmp_path: Path):
+    root = tmp_path / "cache"
+    root.mkdir()
+    server = create_server(root, "127.0.0.1", 0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address[:2]
+    try:
+        with urlopen(f"http://{host}:{port}/") as response:
+            assert b"MATERIALS ATLAS" in response.read()
+        with urlopen(f"http://{host}:{port}/app.js") as response:
+            assert response.headers["Content-Type"].startswith("application/javascript")
+        with urlopen(f"http://{host}:{port}/styles.css") as response:
+            assert response.headers["Content-Type"].startswith("text/css")
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()

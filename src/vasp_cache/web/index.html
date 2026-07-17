@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Read-only VASP cache catalog and Materials Atlas">
+  <title>VASP CACHE / MATERIALS ATLAS</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="page-shell">
+    <header class="masthead" aria-labelledby="page-title">
+      <div class="masthead__topline">
+        <p class="eyebrow">VASP CACHE <span aria-hidden="true">/</span> LAN CATALOG</p>
+        <div class="masthead__badges" aria-label="Service status">
+          <span class="badge badge--readonly">READ ONLY</span>
+          <span class="badge badge--warning">UNAUTHENTICATED LAN</span>
+        </div>
+      </div>
+      <div class="masthead__body">
+        <div>
+          <h1 id="page-title">Materials Atlas</h1>
+          <p class="lede">A field guide to the calculations already in your cache — identity first, provenance always.</p>
+        </div>
+        <div class="masthead__meta">
+          <span class="meta-label">CACHE ROOT</span>
+          <span id="cache-root" class="mono">configured server root</span>
+          <span class="meta-label">LAST READ</span>
+          <time id="last-read" class="mono">—</time>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section id="status-region" class="status-region" aria-live="polite" aria-atomic="true"></section>
+
+      <section class="metric-rail" aria-labelledby="overview-heading">
+        <div class="section-heading">
+          <p class="eyebrow">01 / ORIENTATION</p>
+          <h2 id="overview-heading">The cache at a glance</h2>
+        </div>
+        <div id="metrics" class="metrics" data-testid="summary-metrics">
+          <div class="metric metric--loading"><span class="skeleton skeleton--wide"></span><span class="skeleton"></span></div>
+          <div class="metric metric--loading"><span class="skeleton skeleton--wide"></span><span class="skeleton"></span></div>
+          <div class="metric metric--loading"><span class="skeleton skeleton--wide"></span><span class="skeleton"></span></div>
+          <div class="metric metric--loading"><span class="skeleton skeleton--wide"></span><span class="skeleton"></span></div>
+        </div>
+      </section>
+
+      <section class="atlas-grid" aria-label="Materials overview">
+        <div class="family-panel">
+          <div class="section-heading section-heading--compact">
+            <p class="eyebrow">02 / INDEX</p>
+            <h2>Formula families</h2>
+            <p class="section-note">The most represented identities in this cache. Select one to narrow the catalog.</p>
+          </div>
+          <div id="formula-families" class="formula-families" data-testid="formula-families">
+            <p class="muted">Loading family index…</p>
+          </div>
+        </div>
+        <aside class="quality-panel" aria-labelledby="quality-heading">
+          <div class="section-heading section-heading--compact">
+            <p class="eyebrow">FIELD NOTES</p>
+            <h2 id="quality-heading">Read the signals</h2>
+          </div>
+          <ul id="quality-signals" class="signal-list">
+            <li class="signal signal--neutral">Reading metadata only; storage scans are explicit.</li>
+          </ul>
+          <p class="storage-note"><span class="dot"></span> Storage scan not included in overview.</p>
+        </aside>
+      </section>
+
+      <section class="catalog-section" aria-labelledby="catalog-heading">
+        <div class="catalog-heading">
+          <div class="section-heading section-heading--compact">
+            <p class="eyebrow">03 / CATALOG</p>
+            <h2 id="catalog-heading">Calculation records</h2>
+          </div>
+          <p id="catalog-count" class="catalog-count mono">—</p>
+        </div>
+
+        <form id="filters" class="filters" autocomplete="off">
+          <div class="filter filter--primary">
+            <label for="formula">Formula family</label>
+            <input id="formula" name="formula" type="search" placeholder="e.g. Si, Fe2O3" spellcheck="false">
+          </div>
+          <div class="filter">
+            <label for="functional">Functional</label>
+            <input id="functional" name="functional" type="text" placeholder="stored tag" spellcheck="false">
+          </div>
+          <div class="filter">
+            <label for="tags">Tags</label>
+            <input id="tags" name="tags" type="text" placeholder="comma-separated" spellcheck="false">
+          </div>
+          <div class="filter filter--number">
+            <label for="min-energy">Energy ≥</label>
+            <input id="min-energy" name="min_energy" type="number" step="any" placeholder="—">
+          </div>
+          <div class="filter filter--number">
+            <label for="max-energy">Energy ≤</label>
+            <input id="max-energy" name="max_energy" type="number" step="any" placeholder="—">
+          </div>
+          <div class="filter filter--number">
+            <label for="bandgap-min">Bandgap ≥</label>
+            <input id="bandgap-min" name="bandgap_min" type="number" min="0" step="any" placeholder="—">
+          </div>
+          <div class="filter filter--number">
+            <label for="lattice-max">Lattice max ≤</label>
+            <input id="lattice-max" name="lattice_max" type="number" min="0" step="any" placeholder="—">
+          </div>
+          <div class="filter">
+            <label for="convergence">Convergence</label>
+            <select id="convergence" name="converged_only">
+              <option value="">All records</option>
+              <option value="true">Converged only</option>
+            </select>
+          </div>
+          <div class="filter">
+            <label for="provenance">Provenance</label>
+            <select id="provenance" name="provenance">
+              <option value="canonical">Canonical</option>
+              <option value="sampled">Sampled</option>
+              <option value="unknown">Unknown</option>
+              <option value="all">All provenance</option>
+            </select>
+          </div>
+          <button id="clear-filters" class="button button--quiet" type="button">Clear filters</button>
+        </form>
+
+        <div id="catalog-state" class="catalog-state" aria-live="polite"></div>
+        <div class="table-wrap">
+          <table class="catalog-table">
+            <caption class="sr-only">Read-only VASP cache calculation records</caption>
+            <thead>
+              <tr>
+                <th scope="col">Formula</th>
+                <th scope="col">Task / provenance</th>
+                <th scope="col">Energy</th>
+                <th scope="col">Convergence</th>
+                <th scope="col">Sites</th>
+                <th scope="col">Cached</th>
+              </tr>
+            </thead>
+            <tbody id="catalog-body" data-testid="catalog-rows"></tbody>
+          </table>
+        </div>
+        <nav class="pagination" aria-label="Catalog pages">
+          <button id="previous-page" class="button button--outline" type="button" disabled>← Previous</button>
+          <span id="page-status" class="page-status mono">PAGE 1</span>
+          <button id="next-page" class="button button--outline" type="button" disabled>Next →</button>
+        </nav>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>VASP CACHE / MATERIALS ATLAS</span>
+      <span class="mono">read-only metadata surface</span>
+    </footer>
+  </div>
+
+  <div id="drawer-backdrop" class="drawer-backdrop" hidden></div>
+  <aside id="detail-drawer" class="detail-drawer" aria-labelledby="drawer-title" aria-hidden="true" tabindex="-1">
+    <div class="drawer__header">
+      <div>
+        <p class="eyebrow">RECORD DETAIL</p>
+        <h2 id="drawer-title">Calculation</h2>
+      </div>
+      <button id="close-drawer" class="icon-button" type="button" aria-label="Close record detail">×</button>
+    </div>
+    <div id="drawer-content" class="drawer__content">
+      <div class="drawer-state">Select a catalog record to inspect its identity and stored objects.</div>
+    </div>
+  </aside>
+  <script src="/app.js" defer></script>
+</body>
+</html>
