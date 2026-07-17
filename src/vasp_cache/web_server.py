@@ -109,7 +109,7 @@ def _handler_for(cache_root: Path) -> type[BaseHTTPRequestHandler]:
                 elif parsed.path == "/api/objects":
                     self._objects(parsed.query)
                 elif parsed.path.startswith("/api/entry/"):
-                    self._entry(parsed.path)
+                    self._entry(parsed.path, parsed.query)
                 elif parsed.path in _STATIC_ROUTES:
                     self._static(parsed.path)
                 else:
@@ -184,7 +184,8 @@ def _handler_for(cache_root: Path) -> type[BaseHTTPRequestHandler]:
                 }
             )
 
-        def _entry(self, path: str) -> None:
+        def _entry(self, path: str, query: str) -> None:
+            _single_query(query, set())
             encoded_hash = path[len("/api/entry/") :]
             if not encoded_hash or "/" in encoded_hash:
                 self._json_error(HTTPStatus.NOT_FOUND, "entry not found")

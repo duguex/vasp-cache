@@ -85,6 +85,19 @@ def test_entry_api_returns_detail_and_missing_hash_is_404(
     assert request_status(server_url + "/api/entry/missing") == 404
 
 
+def test_entry_api_rejects_query_parameters(
+    cache_root: Path, tmp_path: Path, server_url: str
+):
+    _reset_project()
+    content_hash = put(write_complete_calc(tmp_path / "calc"))
+    assert content_hash is not None
+    encoded = quote(content_hash)
+    for query in ("unknown=1", "unknown=1&unknown=2"):
+        with pytest.raises(HTTPError) as caught:
+            request_json(server_url + "/api/entry/" + encoded + "?" + query)
+        assert caught.value.code == 400
+
+
 def test_objects_api_supports_strict_boolean(
     cache_root: Path, server_url: str
 ):
