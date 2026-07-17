@@ -74,6 +74,7 @@ rewriting, or deleting cache state. Use these views to understand both the
 logical metadata entries and the physical objects they reference:
 
 ```bash
+vasp-cache inspect overview --top-formulas 20
 vasp-cache inspect summary
 vasp-cache inspect entries --formula GaN --provenance all --limit 50
 vasp-cache inspect entries --jsonl --limit 1000
@@ -81,7 +82,13 @@ vasp-cache inspect entry 5:...
 vasp-cache inspect objects --orphans-only
 ```
 
-`summary` reports aggregate metadata and storage counts. `entries` lists
+`overview` is the fast SQLite-only aggregate view: it reports entry/formula
+counts, energy and convergence coverage, provenance and identity-generation
+distributions, top formulas, and cached/energy ranges. It deliberately does
+not scan CAS and reports `storage_scan: false`.
+
+`summary` additionally scans metadata references and physical CAS objects for
+storage totals, so it is more expensive on large caches. `entries` lists
 filtered metadata rows. `entry` shows one complete metadata record and, for
 each logical output, its CAS digest, size, presence, and relative CAS location;
 this makes the metadata-to-CAS relationship explicit. `objects` reports
@@ -90,9 +97,9 @@ reports unreferenced objects; it never deletes them.
 
 Inspection is observational only: it does not repair missing objects, run
 health checks, or perform garbage collection. Future `health` and `gc`
-commands will require separate explicit workflows. The existing
-`status` command remains a quick stats/preview view; use `inspect` for the
-complete read-only metadata and CAS views.
+commands will require separate explicit workflows. The existing `status`
+command remains a quick stats/preview view; use `inspect overview` for fast
+whole-database context and the other inspect views for detail.
 
 ## Cache root
 

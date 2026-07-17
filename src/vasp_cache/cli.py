@@ -127,6 +127,26 @@ def _render_summary_table(payload: dict[str, Any]) -> None:
         print(f"{key}: {payload.get(key)}")
 
 
+def _render_overview_table(payload: dict[str, Any]) -> None:
+    for key in (
+        "entries",
+        "formulas",
+        "with_energy",
+        "with_bandgap",
+        "converged",
+        "provenance",
+        "key_generations",
+        "profile_ids",
+        "energy_range",
+        "cached_at_range",
+        "storage_scan",
+    ):
+        print(f"{key}: {payload.get(key)}")
+    print("top_formulas:")
+    for row in payload.get("top_formulas", []):
+        print(f"  {row['formula']}: {row['entries']}")
+
+
 def _render_entry_table(payload: dict[str, Any]) -> None:
     for key in sorted(k for k in payload if k != "objects"):
         print(f"{key}: {payload[key]}")
@@ -180,6 +200,12 @@ def main(argv: list[str] | None = None) -> int:
 
     p_inspect = sub.add_parser("inspect", help="Read-only cache inspection views")
     inspect_sub = p_inspect.add_subparsers(dest="inspect_cmd", required=True)
+
+    p_overview = inspect_sub.add_parser(
+        "overview", help="Show fast SQLite-only aggregate metadata"
+    )
+    p_overview.add_argument("--top-formulas", type=int, default=10)
+    _add_output_flags(p_overview, collection=False)
 
     p_summary = inspect_sub.add_parser("summary", help="Show aggregate cache storage and metadata counts")
     _add_output_flags(p_summary, collection=False)
@@ -318,10 +344,17 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "inspect":
-        from vasp_cache.inspection import entry, entries, objects, summary
+        from vasp_cache.inspection import entry, entries, objects, overview, summary
         from vasp_cache.paths import cache_root
-
         root = cache_root()
+
+        if args.inspect_cmd == "overview":
+            payload = overview(root, top_formulas=args.top_formulas)
+            if args.json:
+                print(json.dumps(payload, indent=2, default=str))
+            else:
+                _render_overview_table(payload)
+            return 0
         if args.inspect_cmd == "summary":
             payload = summary(root)
             if args.json:

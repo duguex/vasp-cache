@@ -61,6 +61,7 @@ vasp-cache mapping show
 物理对象：
 
 ```bash
+vasp-cache inspect overview --top-formulas 20
 vasp-cache inspect summary
 vasp-cache inspect entries --formula GaN --provenance all --limit 50
 vasp-cache inspect entries --jsonl --limit 1000
@@ -68,15 +69,20 @@ vasp-cache inspect entry 5:...
 vasp-cache inspect objects --orphans-only
 ```
 
-`summary` 汇总元数据和存储计数；`entries` 列出筛选后的元数据；`entry` 展示
-完整条目，并为每个逻辑输出列出 CAS digest、大小、是否存在及 CAS 相对路径，
-从而透明显示元数据到 CAS 对象的对应关系。`objects` 展示物理 CAS 对象及其
-元数据引用。`--orphans-only` 只报告未被引用的对象，不会删除任何对象。
+`overview` 是快速的 SQLite 聚合视图：展示条目数、化学式数、能量和收敛覆盖率、
+provenance、identity generation、最常见化学式以及时间/能量范围；明确不扫描
+CAS，并返回 `storage_scan: false`。`summary` 还会扫描 metadata 引用和物理 CAS
+对象，计算存储量，因此大型数据库上更慢。
+
+`entries` 列出筛选后的元数据；`entry` 展示完整条目，并为每个逻辑输出列出
+CAS digest、大小、是否存在及 CAS 相对路径，从而透明显示元数据到 CAS 对象的
+对应关系。`objects` 展示物理 CAS 对象及其元数据引用。`--orphans-only` 只报告
+未被引用的对象，不会删除任何对象。
 
 `inspect` 只负责观测：不会修复缺失对象、执行 health 检查或自动 gc。未来的
-`health` 和 `gc` 命令必须走各自明确的显式工作流；检查本身不会触发清理。
-现有 `status` 仍是快速统计/预览，完整的只读元数据和 CAS 视图请使用
-`inspect`。
+`health` 和 `gc` 命令必须走各自明确的显式工作流；检查本身不会触发清理。现有
+`status` 仍是快速统计/预览；需要全库上下文时优先使用 `inspect overview`，需要
+CAS 级详情时再使用其他 inspect 视图。
 
 `fetch` 只恢复 `OUTCAR`、`CONTCAR`、`vasprun.xml` 等标准输出，不会自动
 生成新的 `INCAR`、`KPOINTS` 或 `POTCAR`。相关计算需要工作流自行定位或

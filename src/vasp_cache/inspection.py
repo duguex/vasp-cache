@@ -141,6 +141,91 @@ def summary(cache_root: Path) -> dict[str, Any]:
     return result
 
 
+def overview(cache_root: Path, *, top_formulas: int = 10) -> dict[str, Any]:
+    """Return fast SQLite-only aggregates without scanning CAS objects."""
+    root = Path(cache_root)
+    if not _has_database(root):
+        return {
+            "entries": 0,
+            "formulas": 0,
+            "with_energy": 0,
+            "with_bandgap": 0,
+            "converged": 0,
+            "provenance": {},
+            "key_generations": {},
+            "profile_ids": {},
+            "top_formulas": [],
+            "energy_range": {"min": None, "max": None},
+            "cached_at_range": {"min": None, "max": None},
+            "storage_scan": False,
+        }
+    top_formulas = max(0, int(top_formulas))
+    conn = meta.connect_readonly(root)
+    if conn is None:
+        return overview(root, top_formulas=top_formulas)
+    try:
+        columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(entries)")
+        }
+        total = conn.execute("SELECT COUNT(*) FROM entries").fetchone()[0]
+        formulas = conn.execute(
+            "SELECT COUNT(DISTINCT formula) FROM entries WHERE formula IS NOT NULL"
+        ).fetchone()[0]
+        with_energy = conn.execute(
+            "SELECT COUNT(*) FROM entries WHERE total_energy IS NOT NULL"
+        ).fetchone()[0]
+        with_bandgap = conn.execute(
+            "SELECT COUNT(*) FROM entries WHERE bandgap IS NOT NULL"
+        ).fetchone()[0]
+        converged = conn.execute(
+            "SELECT COUNT(*) FROM entries WHERE converged = 1"
+        ).fetchone()[0]
+
+        def grouped_counts(column: str) -> dict[str, int]:
+            if column not in columns:
+                return {}
+            rows = conn.execute(
+                f"SELECT COALESCE({column}, '<null>'), COUNT(*) "
+                f"FROM entries GROUP BY {column} ORDER BY {column}"
+            ).fetchall()
+            return {str(row[0]): int(row[1]) for row in rows}
+
+        provenance = grouped_counts("provenance")
+        if not provenance:
+            provenance = {"unknown": int(total)} if total else {}
+        top_rows = conn.execute(
+            "SELECT formula, COUNT(*) AS n FROM entries "
+            "WHERE formula IS NOT NULL GROUP BY formula "
+            "ORDER BY n DESC, formula ASC LIMIT ?",
+            (top_formulas,),
+        ).fetchall()
+        return {
+            "entries": int(total),
+            "formulas": int(formulas),
+            "with_energy": int(with_energy),
+            "with_bandgap": int(with_bandgap),
+            "converged": int(converged),
+            "provenance": provenance,
+            "key_generations": grouped_counts("key_generation"),
+            "profile_ids": grouped_counts("profile_id"),
+            "top_formulas": [
+                {"formula": str(row[0]), "entries": int(row[1])}
+                for row in top_rows
+            ],
+            "energy_range": {
+                "min": conn.execute("SELECT MIN(total_energy) FROM entries").fetchone()[0],
+                "max": conn.execute("SELECT MAX(total_energy) FROM entries").fetchone()[0],
+            },
+            "cached_at_range": {
+                "min": conn.execute("SELECT MIN(cached_at) FROM entries").fetchone()[0],
+                "max": conn.execute("SELECT MAX(cached_at) FROM entries").fetchone()[0],
+            },
+            "storage_scan": False,
+        }
+    finally:
+        conn.close()
+
+
 def entries(
     cache_root: Path,
     *,

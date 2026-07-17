@@ -184,3 +184,18 @@ def test_cli_inspect_objects_jsonl_orphans_only(
     payload = [json.loads(line) for line in lines]
     assert [row["digest"] for row in payload] == [orphan]
     assert payload[0]["orphan"] is True
+
+
+def test_cli_inspect_overview_json(cache_root: Path, tmp_path: Path, capsys):
+    _reset_project()
+    from vasp_cache.api import put
+
+    put(write_complete_calc(tmp_path / "calc"), provenance="canonical")
+    capsys.readouterr()
+
+    assert main(["inspect", "overview", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["entries"] == 1
+    assert payload["storage_scan"] is False
+    assert payload["top_formulas"] == [{"formula": "Si", "entries": 1}]

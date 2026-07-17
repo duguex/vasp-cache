@@ -9,7 +9,7 @@ from pathlib import Path
 from conftest import write_complete_calc
 from vasp_cache import cas
 from vasp_cache.api import put
-from vasp_cache.inspection import entry, objects, summary, entries
+from vasp_cache.inspection import entry, entries, objects, overview, summary
 from vasp_cache.paths import _reset_project
 
 _LEGACY_SCHEMA = """
@@ -184,3 +184,33 @@ def test_inspection_wal_metadata_does_not_create_sidecars(
     assert all(not path.exists() for path in sidecars)
     summary(cache_root)
     assert all(not path.exists() for path in sidecars)
+
+
+def test_overview_empty_cache_is_zero_without_creation(tmp_path: Path):
+    root = tmp_path / "missing"
+
+    result = overview(root)
+
+    assert result["entries"] == 0
+    assert result["formulas"] == 0
+    assert result["top_formulas"] == []
+    assert not root.exists()
+
+
+def test_overview_uses_sqlite_only(
+    cache_root: Path, tmp_path: Path, monkeypatch
+):
+    _reset_project()
+    assert put(write_complete_calc(tmp_path / "calc"), provenance="canonical")
+
+    def unexpected_cas_scan(_root):
+        raise AssertionError("overview must not scan CAS")
+
+    monkeypatch.setattr("vasp_cache.inspection._physical_objects", unexpected_cas_scan)
+    monkeypatch.setattr("vasp_cache.inspection._reference_map", unexpected_cas_scan)
+
+    result = overview(cache_root, top_formulas=5)
+
+    assert result["entries"] == 1
+    assert result["with_energy"] == 1
+    assert result["top_formulas"] == [{"formula": "Si", "entries": 1}]
