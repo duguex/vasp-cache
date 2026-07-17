@@ -66,6 +66,34 @@ Omitted provenance is classified conservatively. Formula queries default to
 `provenance="all"` is the explicit all-candidates view. Exact `has()` and
 `fetch()` remain provenance-independent.
 
+### Read-only inspection
+
+The `inspect` command family is a read-only observability surface for the cache.
+It reads metadata from SQLite and storage facts from CAS without creating,
+rewriting, or deleting cache state. Use these views to understand both the
+logical metadata entries and the physical objects they reference:
+
+```bash
+vasp-cache inspect summary
+vasp-cache inspect entries --formula GaN --provenance all --limit 50
+vasp-cache inspect entries --jsonl --limit 1000
+vasp-cache inspect entry 5:...
+vasp-cache inspect objects --orphans-only
+```
+
+`summary` reports aggregate metadata and storage counts. `entries` lists
+filtered metadata rows. `entry` shows one complete metadata record and, for
+each logical output, its CAS digest, size, presence, and relative CAS location;
+this makes the metadata-to-CAS relationship explicit. `objects` reports
+physical CAS objects and their metadata references. `--orphans-only` only
+reports unreferenced objects; it never deletes them.
+
+Inspection is observational only: it does not repair missing objects, run
+health checks, or perform garbage collection. Future `health` and `gc`
+commands will require separate explicit workflows. The existing
+`status` command remains a quick stats/preview view; use `inspect` for the
+complete read-only metadata and CAS views.
+
 ## Cache root
 
 Default: **`/mnt/shared/vasp_cache`** (shared NFS, not under `$HOME`)  

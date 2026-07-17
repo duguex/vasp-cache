@@ -54,6 +54,30 @@ vasp-cache content-hash /path/to/inputs
 vasp-cache mapping show
 ```
 
+## 只读检查（inspect）
+
+`inspect` 是只读的可观测性界面：从 SQLite 读取元数据、从 CAS 读取存储
+信息，但不会创建、改写或删除缓存状态。可用以下命令同时查看逻辑条目和
+物理对象：
+
+```bash
+vasp-cache inspect summary
+vasp-cache inspect entries --formula GaN --provenance all --limit 50
+vasp-cache inspect entries --jsonl --limit 1000
+vasp-cache inspect entry 5:...
+vasp-cache inspect objects --orphans-only
+```
+
+`summary` 汇总元数据和存储计数；`entries` 列出筛选后的元数据；`entry` 展示
+完整条目，并为每个逻辑输出列出 CAS digest、大小、是否存在及 CAS 相对路径，
+从而透明显示元数据到 CAS 对象的对应关系。`objects` 展示物理 CAS 对象及其
+元数据引用。`--orphans-only` 只报告未被引用的对象，不会删除任何对象。
+
+`inspect` 只负责观测：不会修复缺失对象、执行 health 检查或自动 gc。未来的
+`health` 和 `gc` 命令必须走各自明确的显式工作流；检查本身不会触发清理。
+现有 `status` 仍是快速统计/预览，完整的只读元数据和 CAS 视图请使用
+`inspect`。
+
 `fetch` 只恢复 `OUTCAR`、`CONTCAR`、`vasprun.xml` 等标准输出，不会自动
 生成新的 `INCAR`、`KPOINTS` 或 `POTCAR`。相关计算需要工作流自行定位或
 重建起始结构和输入。
