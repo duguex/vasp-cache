@@ -6,6 +6,136 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any
+
+
+def _add_query_options(parser: argparse.ArgumentParser) -> None:
+    """Add the common metadata query filters to *parser*."""
+    parser.add_argument("--formula", "-f", help="exact chemical formula, e.g. GaN or SiC")
+    parser.add_argument("--functional", help="substring match in tags (e.g. PBE, HSE)")
+    parser.add_argument("--tags", help="substring match in tags field")
+    parser.add_argument("--bandgap-min", type=float, dest="bandgap_min")
+    parser.add_argument("--lattice-max", type=float, dest="lattice_max")
+    parser.add_argument("--min-energy", type=float, dest="min_energy")
+    parser.add_argument("--max-energy", type=float, dest="max_energy")
+    convergence = parser.add_mutually_exclusive_group()
+    convergence.add_argument(
+        "--all",
+        action="store_true",
+        help="include unconverged rows (default: converged only)",
+    )
+    convergence.add_argument(
+        "--converged-only",
+        action="store_true",
+        help="include only converged rows (the default)",
+    )
+    parser.add_argument(
+        "--provenance",
+        choices=("canonical", "sampled", "unknown", "all"),
+        default="canonical",
+        help="provenance filter (default: canonical)",
+    )
+    parser.add_argument("--limit", "-n", type=int, default=20)
+    parser.add_argument("--offset", type=int, default=0)
+
+
+def _add_output_flags(parser: argparse.ArgumentParser, *, collection: bool) -> None:
+    outputs = parser.add_mutually_exclusive_group()
+    outputs.add_argument("--json", action="store_true", help="print JSON")
+    if collection:
+        outputs.add_argument("--jsonl", action="store_true", help="print one JSON object per line")
+
+
+def _converged_only(args: argparse.Namespace) -> bool:
+    return not args.all or args.converged_only
+
+
+def _query_kwargs(args: argparse.Namespace) -> dict[str, Any]:
+    return {
+        "formula": args.formula,
+        "functional": args.functional,
+        "tags": args.tags,
+        "bandgap_min": args.bandgap_min,
+        "lattice_max": args.lattice_max,
+        "min_energy": args.min_energy,
+        "max_energy": args.max_energy,
+        "converged_only": _converged_only(args),
+        "provenance": args.provenance,
+    }
+
+
+def _render_jsonl(rows: list[dict[str, Any]]) -> None:
+    for row in rows:
+        print(json.dumps(row, default=str, sort_keys=True, separators=(",", ":")))
+
+
+def _render_entries_table(rows: list[dict[str, Any]]) -> None:
+    if not rows:
+        print("0 entries")
+        return
+    print(f"{len(rows)} entr{'y' if len(rows) == 1 else 'ies'}")
+    print(
+        f"{'formula':<16} {'E(eV)':>14} {'gap':>8} {'conv':>4} "
+        f"{'prov':<10} {'nsites':>6} {'objects':>7}  content_hash"
+    )
+    for row in rows:
+        energy = row.get("total_energy")
+        energy_s = f"{energy:.6f}" if isinstance(energy, (int, float)) else "-"
+        gap = row.get("bandgap")
+        gap_s = f"{gap:.3f}" if isinstance(gap, (int, float)) else "-"
+        convergence = "Y" if row.get("converged") else "N"
+        nsites = row.get("nsites") if row.get("nsites") is not None else "-"
+        print(
+            f"{str(row.get('formula') or '-'):<16} {energy_s:>14} {gap_s:>8} "
+            f"{convergence:>4} {str(row.get('provenance') or '-'):<10} "
+            f"{str(nsites):>6} {str(row.get('object_count', 0)):>7}  "
+            f"{row.get('content_hash', '')}"
+        )
+
+
+def _render_objects_table(rows: list[dict[str, Any]]) -> None:
+    if not rows:
+        print("0 objects")
+        return
+    print(f"{len(rows)} object{'s' if len(rows) != 1 else ''}")
+    print(f"{'digest':<64} {'size':>10} {'refs':>6} {'orphan':>6} logical_names")
+    for row in rows:
+        size = row.get("size") if row.get("size") is not None else "-"
+        names = ",".join(row.get("logical_names") or []) or "-"
+        print(
+            f"{row.get('digest', ''):<64} {str(size):>10} "
+            f"{row.get('reference_count', 0):>6} {str(bool(row.get('orphan'))):>6} {names}"
+        )
+
+
+def _render_summary_table(payload: dict[str, Any]) -> None:
+    for key in (
+        "entries",
+        "formulas",
+        "converged",
+        "with_energy",
+        "cas_objects",
+        "cas_bytes",
+        "referenced_objects",
+        "referenced_bytes",
+        "orphan_objects",
+        "orphan_bytes",
+        "provenance",
+        "key_generations",
+        "profile_ids",
+    ):
+        print(f"{key}: {payload.get(key)}")
+
+
+def _render_entry_table(payload: dict[str, Any]) -> None:
+    for key in sorted(k for k in payload if k != "objects"):
+        print(f"{key}: {payload[key]}")
+    print("objects:")
+    for name, obj in sorted((payload.get("objects") or {}).items()):
+        print(
+            f"  {name}: digest={obj.get('digest')} size={obj.get('size')} "
+            f"present={obj.get('present')} location={obj.get('location')}"
+        )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -45,28 +175,26 @@ def main(argv: list[str] | None = None) -> int:
         "query",
         help="Query cache metadata (e.g. vasp-cache query --formula GaN)",
     )
-    p_query.add_argument("--formula", "-f", help="exact chemical formula, e.g. GaN or SiC")
-    p_query.add_argument("--functional", help="substring match in tags (e.g. PBE, HSE)")
-    p_query.add_argument("--tags", help="substring match in tags field")
-    p_query.add_argument("--bandgap-min", type=float, dest="bandgap_min")
-    p_query.add_argument("--lattice-max", type=float, dest="lattice_max")
-    p_query.add_argument(
-        "--all",
-        action="store_true",
-        help="include unconverged rows (default: converged only)",
-    )
-    p_query.add_argument(
-        "--provenance",
-        choices=("canonical", "sampled", "unknown", "all"),
-        default="canonical",
-        help="provenance filter (default: canonical)",
-    )
-    p_query.add_argument("--limit", "-n", type=int, default=20)
-    p_query.add_argument(
-        "--json",
-        action="store_true",
-        help="print full JSON (default: compact table)",
-    )
+    _add_query_options(p_query)
+    _add_output_flags(p_query, collection=False)
+
+    p_inspect = sub.add_parser("inspect", help="Read-only cache inspection views")
+    inspect_sub = p_inspect.add_subparsers(dest="inspect_cmd", required=True)
+
+    p_summary = inspect_sub.add_parser("summary", help="Show aggregate cache storage and metadata counts")
+    _add_output_flags(p_summary, collection=False)
+
+    p_entries = inspect_sub.add_parser("entries", help="List filtered cache metadata entries")
+    _add_query_options(p_entries)
+    _add_output_flags(p_entries, collection=True)
+
+    p_entry = inspect_sub.add_parser("entry", help="Show one metadata entry and its CAS objects")
+    p_entry.add_argument("content_hash")
+    _add_output_flags(p_entry, collection=False)
+
+    p_objects = inspect_sub.add_parser("objects", help="List physical CAS objects and references")
+    p_objects.add_argument("--orphans-only", action="store_true", help="show only unreferenced objects")
+    _add_output_flags(p_objects, collection=True)
 
     sub.add_parser("status", help="Show cache stats")
 
@@ -152,18 +280,16 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if ok else 1
 
     if args.cmd == "query":
-        from vasp_cache.api import query
+        from vasp_cache import meta
+        from vasp_cache.paths import cache_root
 
-        rows = query(
-            formula=args.formula,
-            functional=args.functional,
-            tags_contains=args.tags,
-            bandgap_min=args.bandgap_min,
-            lattice_max=args.lattice_max,
-            converged_only=not args.all,
-            provenance=args.provenance,
-            limit=args.limit,
+        query_limit = max(0, args.limit) + max(0, args.offset)
+        rows = meta.query_entries(
+            cache_root(),
+            **_query_kwargs(args),
+            limit=query_limit,
         )
+        rows = rows[max(0, args.offset) : max(0, args.offset) + max(0, args.limit)]
         if args.json:
             print(json.dumps(rows, indent=2, default=str))
         else:
@@ -189,6 +315,50 @@ def main(argv: list[str] | None = None) -> int:
                     f"{str(ns):>6}  {ch}"
                 )
         return 0
+
+    if args.cmd == "inspect":
+        from vasp_cache.inspection import entry, entries, objects, summary
+        from vasp_cache.paths import cache_root
+
+        root = cache_root()
+        if args.inspect_cmd == "summary":
+            payload = summary(root)
+            if args.json:
+                print(json.dumps(payload, indent=2, default=str))
+            else:
+                _render_summary_table(payload)
+            return 0
+        if args.inspect_cmd == "entries":
+            kwargs = _query_kwargs(args)
+            
+            
+            rows = entries(root, **kwargs, limit=args.limit, offset=args.offset)
+            if args.json:
+                print(json.dumps(rows, indent=2, default=str))
+            elif args.jsonl:
+                _render_jsonl(rows)
+            else:
+                _render_entries_table(rows)
+            return 0
+        if args.inspect_cmd == "entry":
+            payload = entry(root, args.content_hash)
+            if payload is None:
+                print(f"entry not found: {args.content_hash}", file=sys.stderr)
+                return 1
+            if args.json:
+                print(json.dumps(payload, indent=2, default=str))
+            else:
+                _render_entry_table(payload)
+            return 0
+        if args.inspect_cmd == "objects":
+            rows = objects(root, orphans_only=args.orphans_only)
+            if args.json:
+                print(json.dumps(rows, indent=2, default=str))
+            elif args.jsonl:
+                _render_jsonl(rows)
+            else:
+                _render_objects_table(rows)
+            return 0
 
     if args.cmd == "status":
         from vasp_cache.api import list_entries, stats

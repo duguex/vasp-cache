@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from conftest import write_complete_calc, write_minimal_inputs
@@ -29,6 +30,7 @@ def test_cli_has_fetch(cache_root: Path, tmp_path: Path):
     assert main(["fetch", str(work)]) == 0
     assert (work / "OUTCAR").is_file()
 
+
 def test_cli_query_defaults_canonical_and_all_opt_in(
     cache_root: Path, tmp_path: Path, capsys
 ):
@@ -42,11 +44,11 @@ def test_cli_query_defaults_canonical_and_all_opt_in(
 
     capsys.readouterr()
     assert main(["query", "--formula", "Si", "--json"]) == 0
-    default_rows = __import__("json").loads(capsys.readouterr().out)
+    default_rows = json.loads(capsys.readouterr().out)
     assert {row["provenance"] for row in default_rows} == {"canonical"}
 
     assert main(["query", "--formula", "Si", "--provenance", "all", "--json"]) == 0
-    all_rows = __import__("json").loads(capsys.readouterr().out)
+    all_rows = json.loads(capsys.readouterr().out)
     assert {row["provenance"] for row in all_rows} == {"canonical", "sampled"}
 
 
@@ -104,3 +106,68 @@ def test_cli_put_conflict_modes_are_explicit(
             str(second),
         ]
     ) == 0
+
+
+def test_cli_inspect_summary_json(cache_root: Path, tmp_path: Path, capsys):
+    _reset_project()
+    from vasp_cache.api import put
+
+    put(write_complete_calc(tmp_path / "calc"), provenance="canonical")
+    capsys.readouterr()
+    assert main(["inspect", "summary", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["entries"] == 1
+    assert payload["cas_objects"] >= 1
+
+
+def test_cli_inspect_entry_json_has_full_hash_and_objects(
+    cache_root: Path, tmp_path: Path, capsys
+):
+    _reset_project()
+    from vasp_cache.api import put
+
+    content_hash = put(write_complete_calc(tmp_path / "calc"))
+    assert content_hash is not None
+    capsys.readouterr()
+    assert main(["inspect", "entry", content_hash, "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["content_hash"] == content_hash
+    assert "OUTCAR" in payload["objects"]
+
+
+def test_cli_inspect_missing_entry_returns_nonzero(cache_root: Path, capsys):
+    assert main(["inspect", "entry", "missing", "--json"]) == 1
+    assert "missing" in capsys.readouterr().err
+
+
+def test_cli_inspect_entries_table_and_jsonl(cache_root: Path, tmp_path: Path, capsys):
+    _reset_project()
+    from vasp_cache.api import put
+
+    put(write_complete_calc(tmp_path / "calc"), provenance="canonical")
+    capsys.readouterr()
+    assert main(["inspect", "entries"]) == 0
+    table = capsys.readouterr().out
+    assert "Si" in table
+
+    assert main(["inspect", "entries", "--jsonl"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines
+    assert all(json.loads(line)["content_hash"] for line in lines)
+
+
+def test_cli_inspect_objects_jsonl_orphans_only(
+    cache_root: Path, tmp_path: Path, capsys
+):
+    _reset_project()
+    from vasp_cache import cas
+    from vasp_cache.api import put
+
+    put(write_complete_calc(tmp_path / "calc"), provenance="canonical")
+    orphan = cas.put_bytes(cache_root, b"orphan")
+    capsys.readouterr()
+    assert main(["inspect", "objects", "--orphans-only", "--jsonl"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    payload = [json.loads(line) for line in lines]
+    assert [row["digest"] for row in payload] == [orphan]
+    assert payload[0]["orphan"] is True
