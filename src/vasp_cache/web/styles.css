@@ -17,6 +17,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html { min-width: 320px; background: var(--ivory); }
 body { margin: 0; background: var(--ivory); color: var(--ink); line-height: 1.45; }
 body::before { content: ''; position: fixed; inset: 0; pointer-events: none; opacity: .22; background-image: radial-gradient(rgba(29,35,40,.13) .45px, transparent .45px); background-size: 7px 7px; mix-blend-mode: multiply; }

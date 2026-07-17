@@ -13,6 +13,8 @@
     overview: null,
     lastHash: null,
     requestId: 0,
+    detailRequestId: 0,
+    closeTimer: null,
     previousFocus: null,
   };
 
@@ -237,7 +239,16 @@
 
   const debounce = (fn, delay) => {
     let timer;
-    return (...args) => { window.clearTimeout(timer); timer = window.setTimeout(() => fn(...args), delay); };
+    const debounced = (...args) => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => { timer = null; fn(...args); }, delay);
+    };
+    debounced.flush = () => {
+      if (timer !== null && timer !== undefined) window.clearTimeout(timer);
+      timer = null;
+      fn();
+    };
+    return debounced;
   };
 
   const handleFilterChange = debounce(() => {
@@ -285,7 +296,12 @@
 
   async function openDrawer(hash) {
     if (!hash) return;
-    state.previousFocus = document.activeElement;
+    if (state.closeTimer !== null) {
+      window.clearTimeout(state.closeTimer);
+      state.closeTimer = null;
+    }
+    const detailRequestId = ++state.detailRequestId;
+    if (els.drawer.hidden) state.previousFocus = document.activeElement;
     els.drawerTitle.textContent = 'Loading record…';
     els.drawerContent.innerHTML = '<div class="drawer-state"><span class="spinner"></span> Fetching normalized detail…</div>';
     els.drawer.hidden = false;
@@ -297,23 +313,34 @@
       const response = await fetch(`/api/entry/${encodeURIComponent(hash)}`, { headers: { Accept: 'application/json' } });
       if (!response.ok) throw new Error(`Detail request failed (${response.status})`);
       const detail = await response.json();
+      if (detailRequestId !== state.detailRequestId) return;
       state.lastHash = hash;
       els.drawerTitle.textContent = display(detail.formula, 'Calculation detail');
       els.drawerContent.innerHTML = detailMarkup(detail);
       els.drawerContent.querySelectorAll('[data-copy]').forEach((button) => button.addEventListener('click', () => copyValue(button)));
       $('#run-storage-scan')?.addEventListener('click', runStorageScan);
     } catch (error) {
+      if (detailRequestId !== state.detailRequestId) return;
       els.drawerTitle.textContent = 'Record unavailable';
       els.drawerContent.innerHTML = `<div class="drawer-state drawer-state--error">${esc(error.message || 'Unable to load detail.')}</div>`;
     }
   }
 
   function closeDrawer() {
+    state.detailRequestId += 1;
     els.drawer.classList.remove('is-open');
     els.drawer.setAttribute('aria-hidden', 'true');
-    window.setTimeout(() => { els.drawer.hidden = true; els.backdrop.hidden = true; }, 220);
+    if (state.closeTimer !== null) window.clearTimeout(state.closeTimer);
+    const timer = window.setTimeout(() => {
+      if (state.closeTimer !== timer) return;
+      state.closeTimer = null;
+      els.drawer.hidden = true;
+      els.backdrop.hidden = true;
+    }, 220);
+    state.closeTimer = timer;
     if (state.previousFocus && typeof state.previousFocus.focus === 'function') state.previousFocus.focus();
   }
+
 
   async function copyValue(button) {
     const value = button.dataset.copy || '';
@@ -353,6 +380,10 @@
 
   els.filters.addEventListener('input', handleFilterChange);
   els.filters.addEventListener('change', handleFilterChange);
+  els.filters.addEventListener('submit', (event) => {
+    event.preventDefault();
+    handleFilterChange.flush();
+  });
   els.clear.addEventListener('click', () => {
     state.filters = { provenance: 'canonical' }; state.offset = 0; syncControls(); writeUrlState(); loadEntries();
   });
