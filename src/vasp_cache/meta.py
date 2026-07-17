@@ -352,7 +352,7 @@ def query_entries(
     if converged_only:
         clauses.append("converged = 1")
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
-    sql = f"SELECT * FROM entries{where} ORDER BY cached_at DESC LIMIT ?"
+    sql = f"SELECT * FROM entries{where} ORDER BY cached_at DESC, content_hash ASC LIMIT ?"
     params.append(int(limit))
     rows = conn.execute(sql, params).fetchall()
     return [_row_to_dict(r) for r in rows]
@@ -402,3 +402,11 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         if d.get(key) is not None:
             d[key] = bool(d[key])
     return d
+
+def iter_entries(cache_root: Path):
+    """Yield decoded metadata entries without creating a database."""
+    if not db_path(cache_root).is_file():
+        return
+    conn = connect(cache_root)
+    for row in conn.execute("SELECT * FROM entries"):
+        yield _row_to_dict(row)
