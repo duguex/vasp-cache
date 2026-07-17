@@ -82,10 +82,12 @@ def _group_row(
     group["output_digests"].append((entry.get("objects") or {}).get("OUTCAR"))
 
 
-def _read_inventory_entries(root: Path, limit: int) -> list[dict[str, Any]]:
+def _read_inventory_entries(
+    root: Path, limit: int
+) -> tuple[list[dict[str, Any]], list[dict[str, str]], int]:
     conn = meta.connect_readonly(root)
     if conn is None:
-        return []
+        return [], [], 0
     try:
         query = "SELECT * FROM entries ORDER BY cached_at"
         params: tuple[int, ...] = ()
@@ -93,7 +95,15 @@ def _read_inventory_entries(root: Path, limit: int) -> list[dict[str, Any]]:
             query += " LIMIT ?"
             params = (limit,)
         rows = conn.execute(query, params).fetchall()
-        return [meta._row_to_dict(row) for row in rows]
+        entries: list[dict[str, Any]] = []
+        errors: list[dict[str, str]] = []
+        for row in rows:
+            old_hash = row["content_hash"]
+            try:
+                entries.append(meta._row_to_dict(row))
+            except Exception as exc:
+                errors.append({"old_hash": old_hash, "error": str(exc)})
+        return entries, errors, len(rows)
     finally:
         conn.close()
 
@@ -102,10 +112,9 @@ def inventory_root(root: Path, *, limit: int = 0) -> dict[str, Any]:
     """Inventory generation changes without modifying rows or CAS objects."""
     if limit < 0:
         raise ValueError("limit must be non-negative")
-    entries = _read_inventory_entries(root, limit)
+    entries, errors, row_count = _read_inventory_entries(root, limit)
 
     groups: dict[str, dict[str, Any]] = {}
-    errors: list[dict[str, str]] = []
     for entry in entries:
         old_hash = entry["content_hash"]
         try:
@@ -136,7 +145,7 @@ def inventory_root(root: Path, *, limit: int = 0) -> dict[str, Any]:
         else:
             safe.append(group)
     return {
-        "rows": len(entries),
+        "rows": row_count,
         "groups": groups,
         "safe": safe,
         "unchanged": unchanged,

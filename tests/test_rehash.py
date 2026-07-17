@@ -71,6 +71,36 @@ def test_rehash_inventory_reports_missing_required_cas_object(
     assert not inventory["safe"]
     assert not inventory["collisions"]
 
+
+def test_rehash_inventory_skips_malformed_objects_json_row(
+    cache_root: Path, tmp_path: Path
+):
+    calc = write_complete_calc(tmp_path / "valid")
+    _seed_old_entry(cache_root, calc, "old-valid")
+    conn = meta.connect(cache_root)
+    conn.execute(
+        "INSERT INTO entries (content_hash, formula, cached_at, objects_json) "
+        "VALUES (?, ?, ?, ?)",
+        ("old-malformed", "Si", 2.0, "not-json"),
+    )
+    conn.commit()
+
+    inventory = inventory_root(cache_root)
+    assert inventory["rows"] == 2
+
+    assert inventory["errors"] == [
+        {"old_hash": "old-malformed", "error": "Expecting value: line 1 column 1 (char 0)"}
+    ]
+    assert inventory["safe"] or inventory["unchanged"]
+    valid_groups = inventory["safe"] + inventory["unchanged"]
+    assert any(group["old_hashes"] == ["old-valid"] for group in valid_groups)
+    assert all("old-malformed" not in group["old_hashes"] for group in inventory["groups"].values())
+    assert all(
+        "old-malformed" not in group["old_hashes"]
+        for group in inventory["collisions"].values()
+    )
+
+
 def test_rehash_apply_rewrites_only_safe_group(
     cache_root: Path, tmp_path: Path
 ):
