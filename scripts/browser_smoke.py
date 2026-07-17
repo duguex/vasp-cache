@@ -152,6 +152,13 @@ def run_smoke(url: str) -> None:
         assert page.locator("#detail-drawer").get_attribute("aria-hidden") == "true"
         assert page.evaluate("document.querySelector('#detail-drawer').hidden && document.querySelector('#detail-drawer').getClientRects().length === 0")
 
+        # Clearing immediately after typing must cancel the pending debounced filter load.
+        page.locator("#formula").fill("NoSuchFormula")
+        page.locator("#clear-filters").click()
+        page.wait_for_function("document.querySelectorAll('.catalog-row').length > 0 && document.querySelector('.catalog-row').dataset.hash === 'hash-00' && !document.querySelector('#catalog-state').textContent.includes('NoSuchFormula')")
+        assert "formula=" not in page.url
+        assert "provenance=canonical" in page.url
+
         # Formula filtering must render the empty state without a full navigation.
         page.locator("#formula").fill("NoSuchFormula")
         page.wait_for_function("document.querySelector('#catalog-state').textContent.includes('No records match formula: NoSuchFormula')")

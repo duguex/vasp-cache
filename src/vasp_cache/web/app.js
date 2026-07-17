@@ -125,6 +125,7 @@
       </button>`).join('');
     els.families.querySelectorAll('[data-formula]').forEach((button) => {
       button.addEventListener('click', () => {
+        handleFilterChange.cancel();
         state.filters.formula = button.dataset.formula;
         state.offset = 0;
         syncControls();
@@ -247,6 +248,10 @@
       if (timer !== null && timer !== undefined) window.clearTimeout(timer);
       timer = null;
       fn();
+    };
+    debounced.cancel = () => {
+      if (timer !== null && timer !== undefined) window.clearTimeout(timer);
+      timer = null;
     };
     return debounced;
   };
@@ -405,13 +410,16 @@
     handleFilterChange.flush();
   });
   els.clear.addEventListener('click', () => {
+    handleFilterChange.cancel();
     state.filters = { provenance: 'canonical' }; state.offset = 0; syncControls(); writeUrlState(); loadEntries();
   });
   els.previous.addEventListener('click', () => {
+    handleFilterChange.cancel();
     if (state.offset <= 0) return;
     state.offset = Math.max(0, state.offset - PAGE_SIZE); writeUrlState(); loadEntries();
   });
   els.next.addEventListener('click', () => {
+    handleFilterChange.cancel();
     if (!state.hasMore) return;
     state.offset += PAGE_SIZE; writeUrlState(); loadEntries();
   });
