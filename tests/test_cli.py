@@ -74,3 +74,33 @@ def test_cli_recursive_put_provenance_applies_to_all_entries(
     assert {row["content_hash"] for row in all_rows} >= {
         row["content_hash"] for row in sampled_rows
     }
+
+
+def test_cli_put_conflict_modes_are_explicit(
+    cache_root: Path, tmp_path: Path
+):
+    _reset_project()
+    first = write_complete_calc(tmp_path / "first", energy="-5.0")
+    second = write_complete_calc(tmp_path / "second", energy="-6.0")
+
+    assert main(["put", "--provenance", "canonical", str(first)]) == 0
+    assert main(
+        [
+            "put",
+            "--provenance",
+            "canonical",
+            "--on-conflict",
+            "skip",
+            str(second),
+        ]
+    ) == 0
+    assert main(
+        [
+            "put",
+            "--provenance",
+            "canonical",
+            "--on-conflict",
+            "overwrite",
+            str(second),
+        ]
+    ) == 0

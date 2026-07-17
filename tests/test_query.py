@@ -6,6 +6,7 @@ from pathlib import Path
 
 from conftest import write_complete_calc
 from vasp_cache.api import get_meta, list_entries, put, query, stats
+from vasp_cache.fingerprint import result_geometry_hash
 from vasp_cache.mapping import content_hash
 from vasp_cache.paths import _reset_project
 
@@ -61,3 +62,5 @@ def test_get_meta_by_dir(cache_root: Path, tmp_path: Path):
     meta = get_meta(calc)
     assert meta is not None
     assert meta.get("formula") == "Si"
+
+    assert meta.get("result_geom_hash") == result_geometry_hash(calc)

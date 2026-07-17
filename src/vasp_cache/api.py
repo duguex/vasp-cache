@@ -6,14 +6,15 @@ import logging
 import re
 import time
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Literal
 
 from vasp_cache import cas, meta
 from vasp_cache.logutil import ensure_logging
 from vasp_cache.mapping import content_hash as compute_content_hash
 from vasp_cache.mapping import load_mapping, mapping_digest
-from vasp_cache.errors import ProvenanceConflictError
+from vasp_cache.errors import CacheConflictError, ProvenanceConflictError
 from vasp_cache.parse import MAX_LATTICE, Provenance, summarize_calc
+from vasp_cache.fingerprint import result_geometry_hash
 from vasp_cache.paths import cache_root
 
 logger = logging.getLogger(__name__)
@@ -21,7 +22,9 @@ logger = logging.getLogger(__name__)
 _OUTPUT_NAMES = ("OUTCAR", "CONTCAR", "vasprun.xml")
 _INPUT_NAMES = ("INCAR", "POSCAR", "KPOINTS")  # no POTCAR
 _PROVENANCE_VALUES = {"canonical", "sampled", "unknown"}
+_CONFLICT_VALUES = {"strict", "skip", "overwrite"}
 __all__ = [
+    "CacheConflictError",
     "ProvenanceConflictError",
     "Provenance",
     "put",
@@ -85,11 +88,14 @@ def put(
     store_inputs: bool = True,
     include: Iterable[str] = (),
     provenance: Provenance | None = None,
+    on_conflict: Literal["strict", "skip", "overwrite"] = "strict",
 ) -> str | None:
     ensure_logging()
     calc_dir = Path(calc_dir)
     if provenance is not None and provenance not in _PROVENANCE_VALUES:
         raise ValueError(f"invalid provenance: {provenance}")
+    if on_conflict not in _CONFLICT_VALUES:
+        raise ValueError(f"invalid conflict mode: {on_conflict}")
     try:
         return _put_impl(
             calc_dir,
@@ -98,6 +104,7 @@ def put(
             store_inputs=store_inputs,
             include=include,
             provenance=provenance,
+            on_conflict=on_conflict,
         )
     except Exception:
         logger.exception("put failed %s", calc_dir)
@@ -112,6 +119,7 @@ def _put_impl(
     store_inputs: bool = True,
     include: Iterable[str] = (),
     provenance: Provenance | None = None,
+    on_conflict: Literal["strict", "skip", "overwrite"] = "strict",
 ) -> str | None:
     usable, _, converged = _outcar_usable(calc_dir)
     if not usable:
@@ -142,6 +150,25 @@ def _put_impl(
     resolved_provenance, resolved_source = meta.preflight_provenance(
         root, ch, incoming_provenance, incoming_source
     )
+    existing = meta.get_entry(root, ch)
+    if existing is not None:
+        if on_conflict == "skip":
+            logger.info("put skip %s: existing hash=%s", calc_dir, ch)
+            return ch
+        if on_conflict == "strict":
+            source_outcar = calc_dir / "OUTCAR"
+            existing_digest = (existing.get("objects") or {}).get("OUTCAR")
+            if not source_outcar.is_file() or not existing_digest:
+                raise CacheConflictError(
+                    f"cannot verify existing OUTCAR for content hash {ch}"
+                )
+            source_digest = cas.file_digest(source_outcar)
+            if source_digest != existing_digest:
+                raise CacheConflictError(
+                    f"content hash {ch} has a different OUTCAR payload"
+                )
+        else:
+            logger.warning("overwriting existing content hash %s", ch)
 
     objects: dict[str, str] = {}
     for name in _OUTPUT_NAMES:
@@ -187,6 +214,9 @@ def _put_impl(
         "provenance",
     }
     extra = {k: v for k, v in summary.items() if k not in core_keys}
+    result_hash = result_geometry_hash(calc_dir)
+    if result_hash is not None:
+        extra["result_geom_hash"] = result_hash
     meta.upsert_entry(
         root,
         content_hash=ch,

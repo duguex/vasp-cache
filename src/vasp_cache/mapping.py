@@ -17,6 +17,7 @@ from vasp_cache.fingerprint import (
     _incar_fingerprint,
     _potcar_fingerprint,
     _structure_tag,
+    input_protocol_fingerprint,
 )
 
 # ---------------------------------------------------------------------------
@@ -72,6 +73,7 @@ def _critical_section(mapping: dict[str, Any]) -> dict[str, Any]:
         "structure": hard.get("structure", True),
         "kpoints": hard.get("kpoints", True),
         "potcar": hard.get("potcar", True),
+        "protocol": hard.get("protocol", True),
         "incar": sorted(hard.get("incar", [])),
     }
 
@@ -140,6 +142,11 @@ def _compute_hard_body(
 
     src_dir = Path(src_dir)
     hard = mapping.get("hard", {})
+    protocol_fp = (
+        input_protocol_fingerprint(src_dir)
+        if hard.get("protocol", True)
+        else "no-protocol"
+    )
 
     # --- structure tag ---
     # hard.structure: geom_hash | formula | true | false
@@ -148,10 +155,11 @@ def _compute_hard_body(
         struct_tag = "nostruct"
     else:
         method = "geom_hash" if struct_cfg is True else str(struct_cfg)
-        # bare true kept as formula for backward custom YAMLs that set structure: true
         if struct_cfg is True:
             method = "formula"
-        struct_tag = _structure_tag(src_dir, method=method)
+        struct_tag = _structure_tag(
+            src_dir, method=method, structure_file="POSCAR"
+        )
     # --- kpoints tag ---
     kpoints_tag = "nokpt"
     if hard.get("kpoints", True):
@@ -185,7 +193,7 @@ def _compute_hard_body(
         # Not part of identity: fixed token so missing POTCAR is irrelevant
         potcar_fp = "default"
 
-    return f"{struct_tag}_{kpoints_tag}_{incar_fp}_{potcar_fp}"
+    return f"{struct_tag}_{kpoints_tag}_{incar_fp}_{protocol_fp}_{potcar_fp}"
 
 
 def mapping_digest(

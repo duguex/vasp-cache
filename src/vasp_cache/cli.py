@@ -28,6 +28,12 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="explicit calculation provenance",
     )
+    p_put.add_argument(
+        "--on-conflict",
+        choices=("strict", "skip", "overwrite"),
+        default="strict",
+        help="same-hash output policy (default: strict)",
+    )
 
     p_fetch = sub.add_parser("fetch", help="Restore outputs from cache into input dir")
     p_fetch.add_argument("dir", type=Path)
@@ -106,7 +112,11 @@ def main(argv: list[str] | None = None) -> int:
             n_err = 0
             for outcar in Path(args.dir).rglob("OUTCAR"):
                 try:
-                    ch = put(outcar.parent, provenance=args.provenance)
+                    ch = put(
+                        outcar.parent,
+                        provenance=args.provenance,
+                        on_conflict=args.on_conflict,
+                    )
                 except Exception:
                     n_err += 1
                     log.exception("put failed %s", outcar.parent)
@@ -116,7 +126,11 @@ def main(argv: list[str] | None = None) -> int:
                     print(ch)
             print(f"cached {n} calculations errors={n_err}", file=sys.stderr)
             return 1 if n_err else 0
-        ch = put(args.dir, provenance=args.provenance)
+        ch = put(
+            args.dir,
+            provenance=args.provenance,
+            on_conflict=args.on_conflict,
+        )
         if ch is None:
             print("skip: not usable (use -v for reason)", file=sys.stderr)
             return 1

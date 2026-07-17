@@ -12,6 +12,7 @@ from vasp_cache.api import (
     query,
     stats,
 )
+from vasp_cache.errors import CacheConflictError, IdentityInputError
 from vasp_cache.archive import export_archive, import_archive
 from vasp_cache.mapping import (
     content_hash,
@@ -25,6 +26,8 @@ from vasp_cache.paths import override_cache_root
 __version__ = "0.2.0"
 
 __all__ = [
+    "CacheConflictError",
+    "IdentityInputError",
     "ProvenanceConflictError",
     "__version__",
     "content_hash",

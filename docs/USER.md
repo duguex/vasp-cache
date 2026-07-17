@@ -24,19 +24,21 @@ vasp-cache status
 - **OUTCAR 正常结束且可入库**的计算会 `put` 成功（不等同于电子或离子收敛）。
 - 缺少 OUTCAR 正常结束标记 → 跳过；读取或解析异常会报错，由调用方处理。
 - 超大晶胞（`max_abc > 25` Å，可配）→ 跳过。
-- **不存 POTCAR**；身份默认也不依赖 POTCAR 文件（mapping gen 4）。
-- 同一 `content_hash` 再 `put` 会按 provenance 权限合并：自动/`unknown` 不会降级显式角色；同级的不同非 `unknown` 显式角色会拒绝并保持原条目不变。
+- **不存 POTCAR**；默认身份使用 POSCAR，不依赖 POTCAR 文件（mapping gen 5）。
+- 主身份是 **POSCAR + KPOINTS + 归一化输入 protocol + hard INCAR**；CONTCAR 是输出，可附带 `result_geom_hash`，不是主身份。
+- 同一 `content_hash` 默认 `strict`：OUTCAR 字节不一致会在 CAS 写入前抛出 `CacheConflictError`；相同字节幂等。
 
 ## 日常命令
 
 ```bash
 export VASP_CACHE_ROOT=/mnt/shared/vasp_cache   # 若环境未指默认根
-# 单目录入库；显式声明角色可覆盖自动分类
-vasp-cache put /path/to/complete_calc --provenance canonical
+# 单目录入库；strict 是默认冲突策略
+vasp-cache put /path/to/complete_calc --provenance canonical --on-conflict strict
+vasp-cache put /path/to/complete_calc --on-conflict skip
+vasp-cache put /path/to/complete_calc --on-conflict overwrite
 
 # 批量扫树（所有 OUTCAR 父目录）
-vasp-cache put -r /path/to/project_tree --provenance sampled
-
+vasp-cache put -r /path/to/project_tree --provenance sampled --on-conflict strict
 # 是否命中 / 恢复标准输出（仅 exact identity 命中）
 vasp-cache has   /path/to/inputs
 vasp-cache fetch /path/to/inputs
@@ -99,10 +101,11 @@ python scripts/migrate_signac_to_cas.py \
   --dest /mnt/shared/vasp_cache
 ```
 
-改 mapping 身份后重算主键：
+改 mapping 身份后先盘点，再显式应用无冲突迁移：
 
 ```bash
 python scripts/rehash_meta_cas.py --root /mnt/shared/vasp_cache
+python scripts/rehash_meta_cas.py --root /mnt/shared/vasp_cache --apply
 ```
 
 备份整库：`vasp-cache export-archive backup.tgz`
@@ -113,9 +116,7 @@ python scripts/rehash_meta_cas.py --root /mnt/shared/vasp_cache
 结果缓存请指向同一 `VASP_CACHE_ROOT`（共享 CAS）。  
 MP 下载缓存、jobs.db 仍在 `~/.vasp_sop/`，与结果库分离。
 
-## 身份（摘要）
-
-详见 [IDENTITY.md](./IDENTITY.md)。硬键含结构 geom_hash、KPOINTS、选定 INCAR；**不含** POTCAR；generation 前缀 `4:`。
+详见 [IDENTITY.md](./IDENTITY.md)。gen 5 硬键含 **POSCAR geometry、KPOINTS、归一化输入 protocol、选定 INCAR**；CONTCAR 不是主身份。
 
 ## 非目标
 

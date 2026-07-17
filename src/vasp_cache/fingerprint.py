@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
+
+from vasp_cache.errors import IdentityInputError
 
 _INCAR_FINGERPRINT_KEYS = (
     "ENCUT", "PREC", "ISMEAR", "SIGMA", "ISIF",
@@ -30,6 +33,82 @@ def _incar_fingerprint(src_dir: Path, keys: tuple[str, ...] = _INCAR_FINGERPRINT
     return "|".join(parts) if parts else "default"
 
 
+def _as_int(value: object) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def input_protocol_identity(src_dir: Path) -> dict[str, object]:
+    """Parse INCAR/POSCAR protocol inputs without reading outputs."""
+    src_dir = Path(src_dir)
+    poscar = src_dir / "POSCAR"
+    if not poscar.is_file():
+        raise IdentityInputError(f"identity requires POSCAR: {src_dir}")
+    try:
+        from pymatgen.core.structure import Structure
+
+        Structure.from_file(str(poscar))
+    except Exception as exc:
+        raise IdentityInputError(f"invalid POSCAR: {poscar}") from exc
+
+    incar_path = src_dir / "INCAR"
+    if not incar_path.is_file():
+        incar: dict[str, object] = {}
+    else:
+        try:
+            from pymatgen.io.vasp.inputs import Incar
+
+            incar = dict(Incar.from_file(str(incar_path)))
+        except Exception as exc:
+            raise IdentityInputError(f"invalid INCAR: {incar_path}") from exc
+
+    nsw = _as_int(incar.get("NSW", 0))
+    if nsw is None:
+        raise IdentityInputError(f"invalid NSW in {incar_path}")
+    raw_ibrion = incar.get("IBRION")
+    ibrion = _as_int(raw_ibrion)
+    if ibrion is None and raw_ibrion is None:
+        ibrion = -1 if nsw <= 0 else 0
+    if ibrion is None:
+        raise IdentityInputError(f"invalid IBRION in {incar_path}")
+    raw_isif = incar.get("ISIF")
+    isif = _as_int(raw_isif)
+    if isif is None and raw_isif is None:
+        isif = 0 if ibrion == 0 or bool(incar.get("LHFCALC", False)) else 2
+    if isif is None:
+        raise IdentityInputError(f"invalid ISIF in {incar_path}")
+    nfree = _as_int(incar.get("NFREE"))
+
+    if ibrion in (5, 6, 7, 8):
+        mode = "phonon"
+    elif nsw > 0 and ibrion in (0, 3):
+        mode = "md"
+    elif nsw > 0 and ibrion in (1, 2):
+        mode = "relaxation"
+    elif nsw <= 0:
+        mode = "static"
+    else:
+        mode = "unknown"
+    return {
+        "calc_mode": mode,
+        "nsw": nsw,
+        "ibrion": ibrion,
+        "isif": isif,
+        "nfree": nfree,
+    }
+
+
+def input_protocol_fingerprint(src_dir: Path) -> str:
+    """Serialize the input-only protocol identity deterministically."""
+    return json.dumps(
+        input_protocol_identity(Path(src_dir)),
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
 def _potcar_fingerprint(src_dir: Path) -> str:
     """Extract POTCAR pseudopotential species tokens.
 
@@ -47,7 +126,11 @@ def _potcar_fingerprint(src_dir: Path) -> str:
         return "unknown"
 
 
-def _structure_tag(src_dir: Path, method: str | bool = "formula") -> str:
+def _structure_tag(
+    src_dir: Path,
+    method: str | bool = "formula",
+    structure_file: str | None = None,
+) -> str:
     """Structure contribution to the hard key.
 
     Parameters
@@ -64,7 +147,12 @@ def _structure_tag(src_dir: Path, method: str | bool = "formula") -> str:
 
     use_geom = method in ("geom_hash", "geometry", "geom", "structure_hash")
     struct = None
-    for cand in (src_dir / "CONTCAR", src_dir / "POSCAR"):
+    candidates = (
+        (src_dir / structure_file,)
+        if structure_file is not None
+        else (src_dir / "CONTCAR", src_dir / "POSCAR")
+    )
+    for cand in candidates:
         if cand.is_file():
             try:
                 struct = Structure.from_file(str(cand))
@@ -93,6 +181,17 @@ def _structure_tag(src_dir: Path, method: str | bool = "formula") -> str:
     )
     payload = json.dumps({"lattice": lat, "sites": sites}, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def result_geometry_hash(src_dir: Path) -> str | None:
+    """Return a CONTCAR geometry hash without affecting primary identity."""
+    contcar = Path(src_dir) / "CONTCAR"
+    if not contcar.is_file():
+        return None
+    value = _structure_tag(
+        Path(src_dir), method="geom_hash", structure_file="CONTCAR"
+    )
+    return None if value == "unknown" else value
 
 
 def content_hash(src_dir: Path) -> str:

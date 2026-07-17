@@ -1,5 +1,5 @@
-# Default mapping profile — structure geometry in hard key (gen 4)
-key_generation: 4
+# Default mapping profile — POSCAR intent geometry + protocol identity (gen 5)
+key_generation: 5
 description: >
   Hard key includes structure geometry hash (not formula-only).
   Gen 3: POTCAR not in identity.
@@ -8,6 +8,7 @@ hard:
   # formula | geom_hash | false
   structure: geom_hash
   kpoints: true
+  protocol: true
   potcar: false
   incar:
     - ENCUT

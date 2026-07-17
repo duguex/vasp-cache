@@ -60,17 +60,22 @@ def put_bytes(cache_root: Path, data: bytes) -> str:
     return digest
 
 
-def put_file(cache_root: Path, src: Path | str) -> str:
-    """Hash and store file at *src*; return digest. Dedup if present."""
-    src = Path(src)
+def file_digest(src: Path | str) -> str:
+    """Return the SHA-256 digest of a file without writing to CAS."""
     h = hashlib.sha256()
-    with open(src, "rb") as f:
+    with open(Path(src), "rb") as f:
         while True:
             chunk = f.read(1024 * 1024)
             if not chunk:
                 break
             h.update(chunk)
-    digest = h.hexdigest()
+    return h.hexdigest()
+
+
+def put_file(cache_root: Path, src: Path | str) -> str:
+    """Hash and store file at *src*; return digest. Dedup if present."""
+    src = Path(src)
+    digest = file_digest(src)
     dest = object_path(cache_root, digest)
     if dest.is_file():
         return digest

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+import pytest
 
 from vasp_cache.mapping import content_hash
 from vasp_cache.fingerprint import content_hash as legacy_content_hash
+from vasp_cache.errors import IdentityInputError
 
 from conftest import write_minimal_inputs, MINIMAL_POSCAR, MINIMAL_INCAR, MINIMAL_KPOINTS
 
@@ -13,7 +15,7 @@ def test_content_hash_stable(tmp_path: Path):
     h1 = content_hash(d)
     h2 = content_hash(d)
     assert h1 == h2
-    assert h1.startswith("4:")
+    assert h1.startswith("5:")
     # INCAR fingerprint includes ENCUT
     assert "ENCUT=520" in h1 or "ENCUT=520.0" in h1
     assert "_default" in h1  # potcar not in identity
@@ -28,12 +30,11 @@ def test_kpoints_change_changes_hash(tmp_path: Path):
     assert content_hash(d) != h0
 
 
-def test_missing_inputs_still_returns_string(tmp_path: Path):
+def test_missing_inputs_require_poscar(tmp_path: Path):
     d = tmp_path / "empty"
     d.mkdir()
-    h = content_hash(d)
-    assert isinstance(h, str)
-    assert "unknown" in h or "nokpt" in h or "default" in h
+    with pytest.raises(IdentityInputError):
+        content_hash(d)
 
 
 def test_incar_change_changes_hash(tmp_path: Path):
@@ -60,7 +61,7 @@ def test_potcar_change_changes_hash_when_enabled(tmp_path: Path):
     """With hard.potcar=true, changing POTCAR species flips the hash."""
     d = write_minimal_inputs(tmp_path / "a")
     mapping = {
-        "key_generation": 5,
+        "key_generation": 6,
         "hard": {
             "structure": "geom_hash",
             "kpoints": True,
@@ -100,28 +101,14 @@ Direct
     assert content_hash(d) != h0
 
 
-def test_concar_preferred_over_poscar(tmp_path: Path):
-    """CONTCAR content is used over POSCAR when both exist."""
+def test_contcar_change_does_not_change_primary_identity(tmp_path: Path):
+    """Primary identity uses input POSCAR, not result CONTCAR."""
     d = write_minimal_inputs(tmp_path / "a")
-    # CONTCAR currently matches POSCAR (Si2)
     h_si = content_hash(d)
-    # Replace CONTCAR with something different
-    gaas_poscar = """\
-GaAs
-1.0
-5.65 0 0
-0 5.65 0
-0 0 5.65
-Ga As
-2 2
-Direct
-0 0 0
-0.25 0.25 0.25
-0.5 0.5 0.5
-0.75 0.75 0.75
-"""
-    (d / "CONTCAR").write_text(gaas_poscar)
-    assert content_hash(d) != h_si
+    (d / "CONTCAR").write_text(
+        (d / "CONTCAR").read_text().replace("5.43", "5.65")
+    )
+    assert content_hash(d) == h_si
 
 
 def test_nelect_change_changes_hash(tmp_path: Path):

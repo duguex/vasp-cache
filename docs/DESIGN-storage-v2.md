@@ -17,8 +17,11 @@ $VASP_CACHE_ROOT/          # default /mnt/shared/vasp_cache
 
 ## Identity
 
-Unchanged: `content_hash` from mapping profile (`key_generation` + hard keys).
-`put` is last-write-wins on the same `content_hash` (meta upsert).
+Generation-5 `content_hash` is the input-intent identity: POSCAR geometry,
+KPOINTS, normalized protocol, and hard INCAR fields. `CONTCAR` is an output
+object and optional result geometry metadata.
+`put` defaults to strict same-key output verification; explicit `skip` and
+`overwrite` modes are available.
 
 ## API
 

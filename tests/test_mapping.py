@@ -22,7 +22,7 @@ class TestLoadMapping:
 
     def test_default_key_generation(self):
         profile = load_mapping()
-        assert profile["key_generation"] == 4
+        assert profile["key_generation"] == 5
 
     def test_default_has_hard_section(self):
         profile = load_mapping()
@@ -46,9 +46,9 @@ class TestLoadMapping:
 
     def test_load_custom_mapping(self, tmp_path: Path):
         custom = tmp_path / "custom.yaml"
-        custom.write_text("key_generation: 5\nhard:\n  incar: [ENCUT]\n  structure: false\n  kpoints: false\n  potcar: false\nsoft:\n  incar: []\n")
+        custom.write_text("key_generation: 6\nhard:\n  incar: [ENCUT]\n  structure: false\n  kpoints: false\n  potcar: false\nsoft:\n  incar: []\n")
         profile = load_mapping(custom)
-        assert profile["key_generation"] == 5
+        assert profile["key_generation"] == 6
         assert profile["hard"]["incar"] == ["ENCUT"]
 
 
@@ -62,7 +62,7 @@ class TestMappingDigest:
     def test_digest_includes_generation(self, tmp_path: Path):
         d = write_minimal_inputs(tmp_path / "a")
         h = mapping_digest(d)
-        assert h.startswith("4:")
+        assert h.startswith("5:")
 
     def test_kpoints_change_flips_digest(self, tmp_path: Path):
         d = write_minimal_inputs(tmp_path / "a")
@@ -78,32 +78,29 @@ class TestMappingDigest:
         (d / "INCAR").write_text("ENCUT = 600\nPREC = Normal\nISMEAR = -5\nSIGMA = 0.1\nISIF = 3\nGGA = PE\nLASPH = .TRUE.\n")
         assert mapping_digest(d) != h0
 
-    def test_soft_incar_change_does_not_flip_digest(self, tmp_path: Path):
-        """Only soft keys (NSW, NELM, ...) changed — hard hash stays same."""
+    def test_protocol_change_flips_digest(self, tmp_path: Path):
+        """Protocol fields are hard identity, even when also in soft vector."""
         d = write_minimal_inputs(tmp_path / "a")
         h0 = mapping_digest(d)
-        # NSW is soft; changing it should NOT affect the hard hash
         (d / "INCAR").write_text(
             "ENCUT = 520\nPREC = Normal\nISMEAR = -5\n"
             "SIGMA = 0.1\nISIF = 3\nGGA = PE\nLASPH = .TRUE.\n"
-            "NSW = 200\nNELM = 100\n"
+            "NSW = 200\nIBRION = 2\nNELM = 100\n"
         )
-        # Critical fields are unchanged, soft fields changed
-        # The hard hash should remain the same
-        h1 = mapping_digest(d)
-        assert h0 == h1, "Adding soft-only NSW/NELM should not change hard hash"
+        assert mapping_digest(d) != h0
 
-    def test_empty_dir_still_returns_string(self, tmp_path: Path):
+    def test_empty_dir_requires_poscar(self, tmp_path: Path):
         d = tmp_path / "empty"
         d.mkdir()
-        h = mapping_digest(d)
-        assert isinstance(h, str)
+        with pytest.raises(ValueError, match="POSCAR"):
+            mapping_digest(d)
+
 
     def test_digest_with_custom_mapping(self, tmp_path: Path):
         """Custom mapping with only structure + ENCUT in hard section."""
         d = write_minimal_inputs(tmp_path / "a")
         custom_map = {
-            "key_generation": 5,
+            "key_generation": 6,
             "hard": {
                 "incar": ["ENCUT"],
                 "structure": "formula",
@@ -113,7 +110,7 @@ class TestMappingDigest:
             "soft": {"incar": []},
         }
         h = mapping_digest(d, mapping=custom_map)
-        assert h.startswith("5:")
+        assert h.startswith("6:")
         # Only structure + ENCUT contributed, no kpoints or potcar
         assert "444" not in h  # kpoints grid should not appear
 
@@ -131,8 +128,7 @@ class TestContentHash:
         d = write_minimal_inputs(tmp_path / "a")
         h = content_hash(d)
         assert isinstance(h, str)
-        # Default mapping means generation 1 prefix
-        assert h.startswith("4:")
+        assert h.startswith("5:")
 
     def test_content_hash_from_mapping_differs_from_fingerprint(self, tmp_path: Path):
         """With default mapping, content_hash includes gen prefix vs plain fingerprint."""
@@ -142,8 +138,7 @@ class TestContentHash:
         pkg = pkg_hash(d)
         fp = fp_hash(d)
         # Package hash includes gen prefix
-        # gen2+geom_hash: prefix and body differ from legacy formula fingerprint
-        assert pkg.startswith("4:")
+        assert pkg.startswith("5:")
         assert pkg[2:] != fp
 
 
@@ -254,17 +249,18 @@ class TestKeyGenerationPolicy:
     def test_critical_change_with_bumped_generation_ok(self):
         """Critical section differs AND generation is bumped — allowed."""
         custom = {
-            "key_generation": 5,
+            "key_generation": 6,
             "hard": {
                 "incar": ["ENCUT"],
                 "structure": False,
                 "kpoints": False,
                 "potcar": False,
+                "protocol": False,
             },
             "soft": {"incar": []},
         }
         h = content_hash("/nonexistent", mapping=custom)
-        assert h.startswith("5:")
+        assert h.startswith("6:")
 
     def test_custom_yaml_without_bump_raises(self, tmp_path: Path):
         """Loading a custom YAML file with critical changes but no bump."""
@@ -322,4 +318,4 @@ class TestGeomHash:
         write(b, "0.30 0.30 0.30")
         ha, hb = mapping_digest(a), mapping_digest(b)
         assert ha != hb
-        assert ha.startswith("4:")
+        assert ha.startswith("5:")

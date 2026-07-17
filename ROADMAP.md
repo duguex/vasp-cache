@@ -9,29 +9,28 @@ calculation twice and to reuse cache-standard outputs across projects.
 Implemented core:
 
 - CAS + SQLite storage;
-- geometry-aware content identity;
+- geometry-aware generation-5 content identity;
+- POSCAR/KPOINTS/normalized-protocol input intent hashing;
 - `put`, `has`, `fetch`, `query`, and CLI workflows;
 - standard output reuse for `OUTCAR`, `CONTCAR`, and `vasprun.xml`;
 - provenance-aware ingest with independent INCAR/OUTCAR metadata parsing;
 - canonical-only formula queries by default, with explicit sampled/unknown/all filters;
 - duplicate provenance preflight before CAS writes;
+- strict/skip/overwrite output conflict modes, with strict preflight before CAS writes;
+- optional `result_geom_hash` metadata for CONTCAR;
+- collision-safe, inventory-first metadata rehashing;
 - metadata query and cache archive support.
 
 A whole-home ingest is an operational data instance, not the acceptance criterion
 for the core project. Random one-off perturbation results are not canonical
 material results.
 
-## Next
+### Identity and migration safety
 
-### Identity correctness
-
-Harden the identity contract before adding broad semantic search:
-
-- POSCAR/CONTCAR identity policy;
-- INCAR hard-key audit;
-- POTCAR fingerprint policy;
-- geometry-hash precision and structure standardization;
-- conflict handling when the same key produces different outputs.
+Generation-5 identity and conflict semantics are implemented. Rehashing is
+inventory-first; `--apply` rewrites only safe non-colliding groups. Collision
+resolution and provenance review remain operational responsibilities before
+any cleanup of legacy or sampled data.
 
 See [Issues #2–#6](https://github.com/duguex/vasp-cache/issues) and
 [Issue #21](https://github.com/duguex/vasp-cache/issues/21).

@@ -13,126 +13,209 @@ Example::
 from __future__ import annotations
 
 import argparse
-import shutil
-import sys
+import json
 import tempfile
-import time
 from pathlib import Path
+from typing import Any
 
 from vasp_cache import cas, meta
 from vasp_cache.mapping import content_hash
 from vasp_cache.paths import _reset_project, override_cache_root
 
 
-def rehash_root(root: Path, *, limit: int = 0) -> dict:
+_BASE_FIELDS = {
+    "content_hash",
+    "objects",
+    "formula",
+    "task_name",
+    "total_energy",
+    "converged",
+    "bandgap",
+    "nsites",
+    "max_abc",
+    "tags",
+    "source_dir",
+    "profile_id",
+    "key_generation",
+    "mapping_digest",
+    "cached_at",
+    "provenance",
+    "provenance_source",
+    "outcar_complete",
+    "electronic_converged",
+    "ionic_converged",
+    "nsw",
+    "ibrion",
+    "isif",
+}
+
+
+def _materialize_inputs(root: Path, entry: dict[str, Any], dest: Path) -> None:
+    objects = entry.get("objects") or {}
+    for name in ("INCAR", "POSCAR", "KPOINTS", "CONTCAR"):
+        digest = objects.get(name)
+        if digest and cas.has_object(root, digest):
+            cas.materialize(root, digest, dest / name)
+
+
+def _new_hash(root: Path, entry: dict[str, Any]) -> str:
+    with tempfile.TemporaryDirectory(prefix="rehash_") as td:
+        td_path = Path(td)
+        _materialize_inputs(root, entry, td_path)
+        return content_hash(td_path)
+
+
+def _group_row(
+    group: dict[str, Any], old_hash: str, entry: dict[str, Any]
+) -> None:
+    group["old_hashes"].append(old_hash)
+    group["output_digests"].append((entry.get("objects") or {}).get("OUTCAR"))
+
+
+def inventory_root(root: Path, *, limit: int = 0) -> dict[str, Any]:
+    """Inventory generation changes without modifying rows or CAS objects."""
     _reset_project()
     override_cache_root(root)
     conn = meta.connect(root)
     rows = conn.execute(
-        "SELECT content_hash, objects_json FROM entries ORDER BY cached_at"
+        "SELECT content_hash FROM entries ORDER BY cached_at"
     ).fetchall()
     if limit:
         rows = rows[:limit]
 
-    ok = same = collide = err = 0
-    t0 = time.time()
-    for i, row in enumerate(rows, 1):
-        old_ch = row["content_hash"]
+    groups: dict[str, dict[str, Any]] = {}
+    errors: list[dict[str, str]] = []
+    for row in rows:
+        old_hash = row["content_hash"]
         try:
-            entry = meta.get_entry(root, old_ch)
-            if not entry:
-                err += 1
-                continue
-            objects = entry.get("objects") or {}
-            with tempfile.TemporaryDirectory(prefix="rehash_") as td:
-                td_path = Path(td)
-                for name in ("INCAR", "POSCAR", "KPOINTS", "CONTCAR"):
-                    dig = objects.get(name)
-                    if dig and cas.has_object(root, dig):
-                        cas.materialize(root, dig, td_path / name)
-                # POSCAR required for structure; fall back CONTCAR→POSCAR
-                if not (td_path / "POSCAR").is_file() and (td_path / "CONTCAR").is_file():
-                    shutil.copy2(td_path / "CONTCAR", td_path / "POSCAR")
-                new_ch = content_hash(td_path)
-            if new_ch == old_ch:
-                same += 1
-                ok += 1
-            else:
-                # rewrite PK: insert new, delete old (if collision, last wins)
-                existing = meta.get_entry(root, new_ch)
-                if existing is not None and existing.get("content_hash") != old_ch:
-                    collide += 1
-                objects = entry.pop("objects")
-                # strip fields that are not upsert kwargs
-                extra = {
-                    k: v
-                    for k, v in entry.items()
-                    if k
-                    not in {
-                        "content_hash",
-                        "formula",
-                        "task_name",
-                        "total_energy",
-                        "converged",
-                        "bandgap",
-                        "nsites",
-                        "max_abc",
-                        "tags",
-                        "source_dir",
-                        "profile_id",
-                        "key_generation",
-                        "mapping_digest",
-                        "cached_at",
-                        "objects",
-                    }
-                }
-                meta.upsert_entry(
-                    root,
-                    content_hash=new_ch,
-                    objects=objects,
-                    formula=entry.get("formula"),
-                    task_name=entry.get("task_name"),
-                    total_energy=entry.get("total_energy"),
-                    converged=entry.get("converged"),
-                    bandgap=entry.get("bandgap"),
-                    nsites=entry.get("nsites"),
-                    max_abc=entry.get("max_abc"),
-                    tags=entry.get("tags"),
-                    source_dir=entry.get("source_dir"),
-                    profile_id=entry.get("profile_id"),
-                    key_generation=entry.get("key_generation"),
-                    mapping_digest=entry.get("mapping_digest"),
-                    cached_at=entry.get("cached_at"),
-                    extra=extra or None,
-                )
-                if new_ch != old_ch:
-                    conn.execute(
-                        "DELETE FROM entries WHERE content_hash = ?", (old_ch,)
-                    )
-                    conn.commit()
-                ok += 1
-        except Exception as exc:
-            err += 1
-            print(f"ERR {old_ch[:40]}: {exc}", file=sys.stderr)
-        if i % 500 == 0 or i == len(rows):
-            print(
-                f"progress {i}/{len(rows)} ok={ok} same={same} "
-                f"collide={collide} err={err} t={time.time()-t0:.1f}s",
-                flush=True,
+            entry = meta.get_entry(root, old_hash)
+            if entry is None:
+                raise KeyError(f"metadata row missing: {old_hash}")
+            new_hash = _new_hash(root, entry)
+            group = groups.setdefault(
+                new_hash,
+                {
+                    "new_hash": new_hash,
+                    "old_hashes": [],
+                    "output_digests": [],
+                },
             )
+            _group_row(group, old_hash, entry)
+        except Exception as exc:
+            errors.append({"old_hash": old_hash, "error": str(exc)})
 
-    st = meta.stats(root)
-    print("stats", st)
-    return {"ok": ok, "same": same, "collide": collide, "err": err, "stats": st}
+    safe = []
+    collisions: dict[str, dict[str, Any]] = {}
+    unchanged = []
+    for new_hash, group in groups.items():
+        if (
+            len(group["old_hashes"]) > 1
+            or len(set(group["output_digests"])) > 1
+        ):
+            collisions[new_hash] = group
+        elif group["old_hashes"][0] == new_hash:
+            unchanged.append(group)
+        else:
+            safe.append(group)
+    return {
+        "rows": len(rows),
+        "groups": groups,
+        "safe": safe,
+        "unchanged": unchanged,
+        "collisions": collisions,
+        "errors": errors,
+    }
+
+
+def _upsert_preserving_metadata(
+    root: Path, new_hash: str, entry: dict[str, Any]
+) -> None:
+    extra = {k: v for k, v in entry.items() if k not in _BASE_FIELDS}
+    meta.upsert_entry(
+        root,
+        content_hash=new_hash,
+        objects=entry.get("objects") or {},
+        formula=entry.get("formula"),
+        task_name=entry.get("task_name"),
+        total_energy=entry.get("total_energy"),
+        converged=entry.get("converged"),
+        bandgap=entry.get("bandgap"),
+        nsites=entry.get("nsites"),
+        max_abc=entry.get("max_abc"),
+        tags=entry.get("tags"),
+        source_dir=entry.get("source_dir"),
+        profile_id=entry.get("profile_id"),
+        key_generation=entry.get("key_generation"),
+        mapping_digest=entry.get("mapping_digest"),
+        cached_at=entry.get("cached_at"),
+        extra=extra or None,
+        provenance=entry.get("provenance", "unknown"),
+        provenance_source=entry.get("provenance_source", "legacy"),
+        outcar_complete=entry.get("outcar_complete"),
+        electronic_converged=entry.get("electronic_converged"),
+        ionic_converged=entry.get("ionic_converged"),
+        nsw=entry.get("nsw"),
+        ibrion=entry.get("ibrion"),
+        isif=entry.get("isif"),
+    )
+
+
+def apply_inventory(root: Path, inventory: dict[str, Any]) -> dict[str, Any]:
+    """Apply only safe, single-row inventory groups."""
+    _reset_project()
+    override_cache_root(root)
+    applied = 0
+    skipped = 0
+    errors = list(inventory.get("errors", []))
+    conn = meta.connect(root)
+    for group in inventory.get("safe", []):
+        old_hash = group["old_hashes"][0]
+        new_hash = group["new_hash"]
+        if meta.get_entry(root, new_hash) is not None:
+            errors.append(
+                {"old_hash": old_hash, "error": "target hash already exists"}
+            )
+            continue
+        entry = meta.get_entry(root, old_hash)
+        if entry is None:
+            errors.append(
+                {"old_hash": old_hash, "error": "source row missing"}
+            )
+            continue
+        _upsert_preserving_metadata(root, new_hash, entry)
+        conn.execute("DELETE FROM entries WHERE content_hash = ?", (old_hash,))
+        conn.commit()
+        applied += 1
+    skipped = len(inventory.get("collisions", {}))
+    return {"applied": applied, "skipped": skipped, "errors": errors}
+
+
+def rehash_root(
+    root: Path, *, limit: int = 0, apply: bool = False
+) -> dict[str, Any]:
+    """Inventory by default; apply only explicit, safe rewrites."""
+    inventory = inventory_root(root, limit=limit)
+    if apply:
+        result = apply_inventory(root, inventory)
+        inventory["apply"] = result
+    return inventory
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--root", type=Path, required=True)
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument(
+        "--apply",
+        action="store_true",
+        help="rewrite only non-colliding groups from the inventory",
+    )
     args = ap.parse_args(argv)
-    r = rehash_root(args.root, limit=args.limit)
-    return 0 if r["err"] == 0 else 2
+    result = rehash_root(args.root, limit=args.limit, apply=args.apply)
+    print(json.dumps(result, indent=2, sort_keys=True))
+    errors = result.get("errors", [])
+    errors += result.get("apply", {}).get("errors", [])
+    return 0 if not errors else 2
 
 
 if __name__ == "__main__":

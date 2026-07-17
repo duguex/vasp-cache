@@ -47,9 +47,8 @@ query(formula="GaN", provenance="all")
 
 ## CLI
 
-```bash
-vasp-cache put <dir> [--provenance canonical|sampled|unknown]
-vasp-cache put -r <root> [--provenance canonical|sampled|unknown]
+vasp-cache put <dir> [--provenance canonical|sampled|unknown] [--on-conflict strict|skip|overwrite]
+vasp-cache put -r <root> [--provenance canonical|sampled|unknown] [--on-conflict strict|skip|overwrite]
 vasp-cache fetch <dir>
 vasp-cache has <dir>
 vasp-cache query --formula GaN                 # canonical only
@@ -72,14 +71,15 @@ Omitted provenance is classified conservatively. Formula queries default to
 Default: **`/mnt/shared/vasp_cache`** (shared NFS, not under `$HOME`)  
 Override: `VASP_CACHE_ROOT` or `override_cache_root(path)`.
 
-## Mapping profile
-
-Default: package `mapping.default.yaml` (`geom_hash`, `key_generation: 2`).
+Default mapping profile: package `mapping.default.yaml` (`geom_hash`, normalized input protocol, `key_generation: 5`).
 
 User overlay: `$VASP_CACHE_ROOT/mapping.yaml` or `VASP_CACHE_MAPPING`.
 
+- The primary identity uses POSCAR + KPOINTS + normalized input protocol + hard INCAR fields.
+- CONTCAR is an output/result geometry, not primary identity; result-only directories cannot prove input intent.
 - Soft weights change nearness only.
 - Critical edits require bumping `key_generation`.
+
 
 ## Real calculation verification
 
@@ -97,9 +97,17 @@ python scripts/verify_real_calcs.py --discover 5
 Default discovery root: `REAL_VASP_CALC_ROOT` or  
 `/mnt/shared/home/2sidesniddle/vasp/2025_undergo_spin_defect`.
 
-## Design
+## Identity and migration
 
-See `docs/superpowers/specs/2026-07-14-vasp-cache-signac-design.md`.
+See `docs/IDENTITY.md` for the generation-5 input-intent contract. Rehashing is
+inventory-first and non-destructive by default:
+
+```bash
+python scripts/rehash_meta_cas.py --root /path/to/cache
+python scripts/rehash_meta_cas.py --root /path/to/cache --apply
+```
+
+Only non-colliding groups are applied; collisions remain available for review.
 
 ## License
 
