@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import pytest
 from pathlib import Path
 from conftest import write_complete_calc
 from vasp_cache import cas, meta
@@ -87,3 +88,48 @@ def test_rehash_apply_rewrites_only_safe_group(
     assert meta.get_entry(cache_root, "old-single") is None
     assert entry["objects"] == objects
     assert cas.read_bytes(cache_root, entry["objects"]["OUTCAR"])
+
+
+
+def _metadata_files_snapshot(root: Path) -> dict[str, tuple[bool, int, int, int]]:
+    snapshot = {}
+    for name in ("meta.sqlite", "meta.sqlite-wal", "meta.sqlite-shm"):
+        path = root / name
+        if path.exists():
+            stat = path.stat()
+            snapshot[name] = (True, stat.st_ino, stat.st_size, stat.st_mtime_ns)
+        else:
+            snapshot[name] = (False, 0, 0, 0)
+    return snapshot
+
+
+def test_rehash_inventory_absent_root_does_not_create_root(tmp_path: Path):
+    root = tmp_path / "missing-cache"
+
+    inventory = inventory_root(root)
+
+    assert inventory["rows"] == 0
+    assert not root.exists()
+
+
+def test_rehash_inventory_preserves_metadata_files(cache_root: Path, tmp_path: Path):
+    calc = write_complete_calc(tmp_path / "snapshot")
+    _seed_old_entry(cache_root, calc, "old-snapshot")
+    before = _metadata_files_snapshot(cache_root)
+
+    inventory_root(cache_root)
+
+    assert _metadata_files_snapshot(cache_root) == before
+
+
+def test_rehash_inventory_rejects_negative_limit(cache_root: Path):
+    with pytest.raises(ValueError, match="limit must be non-negative"):
+        inventory_root(cache_root, limit=-1)
+
+
+def test_rehash_cli_rejects_negative_limit(tmp_path: Path, capsys):
+    with pytest.raises(SystemExit) as exc_info:
+        _rehash.main(["--root", str(tmp_path / "cache"), "--limit", "-1"])
+
+    assert exc_info.value.code == 2
+    assert "limit must be non-negative" in capsys.readouterr().err

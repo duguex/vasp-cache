@@ -23,6 +23,13 @@ from vasp_cache.mapping import content_hash
 from vasp_cache.paths import _reset_project, override_cache_root
 
 
+def _non_negative_limit(value: str) -> int:
+    limit = int(value)
+    if limit < 0:
+        raise argparse.ArgumentTypeError("limit must be non-negative")
+    return limit
+
+
 _BASE_FIELDS = {
     "content_hash",
     "objects",
@@ -77,12 +84,18 @@ def _group_row(
 
 def inventory_root(root: Path, *, limit: int = 0) -> dict[str, Any]:
     """Inventory generation changes without modifying rows or CAS objects."""
-    _reset_project()
-    override_cache_root(root)
-    conn = meta.connect(root)
-    rows = conn.execute(
-        "SELECT content_hash FROM entries ORDER BY cached_at"
-    ).fetchall()
+    if limit < 0:
+        raise ValueError("limit must be non-negative")
+    conn = meta.connect_readonly(root)
+    if conn is None:
+        rows = []
+    else:
+        try:
+            rows = conn.execute(
+                "SELECT content_hash FROM entries ORDER BY cached_at"
+            ).fetchall()
+        finally:
+            conn.close()
     if limit:
         rows = rows[:limit]
 
@@ -207,7 +220,7 @@ def rehash_root(
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--root", type=Path, required=True)
-    ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--limit", type=_non_negative_limit, default=0)
     ap.add_argument(
         "--apply",
         action="store_true",
