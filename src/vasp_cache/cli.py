@@ -3,10 +3,21 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import sys
 from pathlib import Path
 from typing import Any
+
+
+def _is_loopback_host(host: str) -> bool:
+    """Return whether *host* is a loopback address or localhost alias."""
+    if host.strip().lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 def _add_query_options(parser: argparse.ArgumentParser) -> None:
@@ -224,6 +235,11 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("status", help="Show cache stats")
 
+    p_web = sub.add_parser("web", help="Serve the read-only cache dashboard")
+    p_web.add_argument("--root", type=Path, default=None, help="cache root (default: configured cache root)")
+    p_web.add_argument("--host", default="localhost", help="listen host (default: localhost)")
+    p_web.add_argument("--port", type=int, default=8765, help="listen port (default: 8765)")
+
     p_ch = sub.add_parser("content-hash", help="Print content_hash for a directory")
     p_ch.add_argument("dir", type=Path)
 
@@ -249,7 +265,7 @@ def main(argv: list[str] | None = None) -> int:
 
     from vasp_cache.logutil import setup_logging
 
-    if args.cmd != "inspect":
+    if args.cmd not in {"inspect", "web"}:
         if args.verbose >= 2:
             setup_logging("DEBUG")
         elif args.verbose >= 1:
@@ -393,6 +409,20 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 _render_objects_table(rows)
             return 0
+
+    if args.cmd == "web":
+        from vasp_cache.paths import cache_root
+        from vasp_cache.web_server import serve
+
+        root = cache_root() if args.root is None else args.root.expanduser().resolve()
+        if not _is_loopback_host(args.host):
+            print(
+                f"WARNING: vasp-cache web is listening on non-loopback host {args.host!r}; "
+                "the read-only dashboard will be reachable from the LAN.",
+                file=sys.stderr,
+            )
+        serve(cache_root=root, host=args.host, port=args.port)
+        return 0
 
     if args.cmd == "status":
         from vasp_cache.api import list_entries, stats

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import pytest
 
 from conftest import write_complete_calc, write_minimal_inputs
 from vasp_cache.cli import main
@@ -199,3 +200,40 @@ def test_cli_inspect_overview_json(cache_root: Path, tmp_path: Path, capsys):
     assert payload["entries"] == 1
     assert payload["storage_scan"] is False
     assert payload["top_formulas"] == [{"formula": "Si", "entries": 1}]
+
+def test_cli_web_uses_cache_root_and_localhost_defaults_without_creating_root(
+    tmp_path: Path, monkeypatch, capsys
+):
+    root = tmp_path / "missing-cache"
+    monkeypatch.setenv("VASP_CACHE_ROOT", str(root))
+    import vasp_cache.web_server as web_server
+
+    calls = []
+
+    def fake_serve(cache_root, host, port):
+        calls.append((cache_root, host, port))
+
+    monkeypatch.setattr(web_server, "serve", fake_serve)
+    assert main(["web", "--port", "9876"]) == 0
+    assert calls == [(root.resolve(), "localhost", 9876)]
+    assert not root.exists()
+    assert capsys.readouterr().err == ""
+
+
+def test_cli_web_warns_for_non_loopback_host_and_help_is_side_effect_free(
+    tmp_path: Path, monkeypatch, capsys
+):
+    root = tmp_path / "missing-cache"
+    monkeypatch.setenv("VASP_CACHE_ROOT", str(root))
+    import vasp_cache.web_server as web_server
+
+    monkeypatch.setattr(web_server, "serve", lambda **kwargs: None)
+    assert main(["web", "--host", "0.0.0.0", "--root", str(root)]) == 0
+    warning = capsys.readouterr().err
+    assert "WARNING" in warning
+    assert "0.0.0.0" in warning
+    assert not root.exists()
+
+    with pytest.raises(SystemExit):
+        main(["--help"])
+    assert not root.exists()
