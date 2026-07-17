@@ -132,10 +132,9 @@ def summary(cache_root: Path) -> dict[str, Any]:
     sizes = {digest: path.stat().st_size for digest, path in physical.items()}
     result["cas_objects"] = len(physical)
     result["cas_bytes"] = sum(sizes.values())
-    result["referenced_objects"] = len(references)
-    result["referenced_bytes"] = sum(
-        sizes.get(digest, 0) for digest in references
-    )
+    referenced_digests = set(references) & set(physical)
+    result["referenced_objects"] = len(referenced_digests)
+    result["referenced_bytes"] = sum(sizes[digest] for digest in referenced_digests)
     orphan_digests = set(physical) - set(references)
     result["orphan_objects"] = len(orphan_digests)
     result["orphan_bytes"] = sum(sizes[digest] for digest in orphan_digests)
@@ -165,7 +164,7 @@ def entries(
     offset = max(0, int(offset))
     if limit == 0:
         return []
-    rows = meta.query_entries(
+    rows = meta.query_entries_readonly(
         root,
         formula=formula,
         functional=functional,
@@ -189,7 +188,7 @@ def entry(cache_root: Path, content_hash: str) -> dict[str, Any] | None:
     root = Path(cache_root)
     if not _has_database(root):
         return None
-    record = meta.get_entry(root, content_hash)
+    record = meta.get_entry_readonly(root, content_hash)
     if record is None:
         return None
     normalized = dict(record)

@@ -119,6 +119,19 @@ def test_cli_inspect_summary_json(cache_root: Path, tmp_path: Path, capsys):
     assert payload["entries"] == 1
     assert payload["cas_objects"] >= 1
 
+def test_cli_inspect_absent_root_does_not_create_logging_state(
+    tmp_path: Path, monkeypatch, capsys
+):
+    root = tmp_path / "missing"
+    monkeypatch.setenv("VASP_CACHE_ROOT", str(root))
+    from vasp_cache.paths import _reset_project
+
+    _reset_project()
+    assert main(["inspect", "summary", "--json"]) == 0
+    capsys.readouterr()
+    assert not root.exists()
+    assert not (root / "logs" / "vasp_cache.log").exists()
+
 
 def test_cli_inspect_entry_json_has_full_hash_and_objects(
     cache_root: Path, tmp_path: Path, capsys

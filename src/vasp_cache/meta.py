@@ -6,7 +6,9 @@ Database path: ``cache_root/meta.sqlite`` (WAL mode).
 from __future__ import annotations
 
 import json
+import shutil
 import sqlite3
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -102,6 +104,57 @@ def connect(cache_root: Path) -> sqlite3.Connection:
         conn.commit()
         _conns[root] = conn
         return conn
+
+
+class _ReadonlyConnection(sqlite3.Connection):
+    _cleanup = None
+
+    def close(self) -> None:
+        try:
+            super().close()
+        finally:
+            cleanup = self._cleanup
+            self._cleanup = None
+            if cleanup is not None:
+                cleanup()
+
+
+def connect_readonly(cache_root: Path) -> sqlite3.Connection | None:
+    """Open an existing metadata database without any write-capable setup.
+
+    Inspection must not create a cache root, run schema DDL, change journal
+    mode, or commit.  SQLite's ``mode=ro`` URI enforces that contract while
+    still allowing reads from an existing WAL database.
+    """
+    path = db_path(cache_root)
+    if not path.is_file():
+        return None
+    wal_path = path.with_name(path.name + "-wal")
+    shm_path = path.with_name(path.name + "-shm")
+    cleanup = None
+    if wal_path.exists() or shm_path.exists():
+        snapshot = tempfile.TemporaryDirectory(prefix="vasp-cache-meta-")
+        snapshot_db = Path(snapshot.name) / path.name
+        shutil.copy2(path, snapshot_db)
+        for sidecar in (wal_path, shm_path):
+            if sidecar.is_file():
+                shutil.copy2(sidecar, snapshot_db.with_name(sidecar.name))
+        path = snapshot_db
+        cleanup = snapshot.cleanup
+    uri = f"{path.resolve().as_uri()}?mode=ro&immutable=1" if cleanup is None else (
+        f"{path.resolve().as_uri()}?mode=ro"
+    )
+    try:
+        conn = sqlite3.connect(
+            uri, uri=True, check_same_thread=False, factory=_ReadonlyConnection
+        )
+    except Exception:
+        if cleanup is not None:
+            cleanup()
+        raise
+    conn.row_factory = sqlite3.Row
+    conn._cleanup = cleanup
+    return conn
 
 
 def close_all() -> None:
@@ -403,10 +456,110 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
             d[key] = bool(d[key])
     return d
 
+def _readonly_columns(conn: sqlite3.Connection) -> set[str]:
+    table = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'entries'"
+    ).fetchone()
+    if table is None:
+        return set()
+    return {row[1] for row in conn.execute("PRAGMA table_info(entries)")}
+
+
 def iter_entries(cache_root: Path):
-    """Yield decoded metadata entries without creating a database."""
-    if not db_path(cache_root).is_file():
+    """Yield decoded metadata entries without creating or migrating a database."""
+    conn = connect_readonly(cache_root)
+    if conn is None:
         return
-    conn = connect(cache_root)
-    for row in conn.execute("SELECT * FROM entries"):
-        yield _row_to_dict(row)
+    try:
+        if not _readonly_columns(conn):
+            return
+        for row in conn.execute("SELECT * FROM entries"):
+            yield _row_to_dict(row)
+    finally:
+        conn.close()
+
+
+def get_entry_readonly(cache_root: Path, content_hash: str) -> dict[str, Any] | None:
+    """Read one metadata row without schema setup or migration."""
+    conn = connect_readonly(cache_root)
+    if conn is None:
+        return None
+    try:
+        if not _readonly_columns(conn):
+            return None
+        row = conn.execute(
+            "SELECT * FROM entries WHERE content_hash = ?", (content_hash,)
+        ).fetchone()
+        return None if row is None else _row_to_dict(row)
+    finally:
+        conn.close()
+
+
+def query_entries_readonly(
+    cache_root: Path,
+    *,
+    formula: str | None = None,
+    functional: str | None = None,
+    tags: str | None = None,
+    calc_type: str | None = None,
+    bandgap_min: float | None = None,
+    lattice_max: float | None = None,
+    min_energy: float | None = None,
+    max_energy: float | None = None,
+    converged_only: bool = False,
+    provenance: ProvenanceFilter = "canonical",
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    """Query existing metadata using a strictly read-only SQLite connection."""
+    if provenance not in {"canonical", "sampled", "unknown", "all"}:
+        raise ValueError(f"invalid provenance filter: {provenance}")
+    conn = connect_readonly(cache_root)
+    if conn is None:
+        return []
+    try:
+        columns = _readonly_columns(conn)
+        if not columns:
+            return []
+        clauses: list[str] = []
+        params: list[Any] = []
+        if provenance != "all":
+            if "provenance" not in columns:
+                if provenance != "unknown":
+                    return []
+            else:
+                clauses.append("provenance = ?")
+                params.append(provenance)
+        for column, clause, value in (
+            ("formula", "formula = ?", formula),
+            ("tags", "tags LIKE ?", f"%{tags}%" if tags else None),
+            ("bandgap", "bandgap >= ?", bandgap_min),
+            ("max_abc", "max_abc <= ?", lattice_max),
+            ("total_energy", "total_energy >= ?", min_energy),
+        ):
+            if value is not None and column in columns:
+                clauses.append(clause)
+                params.append(value)
+        if max_energy is not None and "total_energy" in columns:
+            clauses.append("total_energy <= ?")
+            params.append(max_energy)
+        if converged_only and "converged" in columns:
+            clauses.append("converged = 1")
+        if functional:
+            functional_clauses = []
+            if "tags" in columns:
+                functional_clauses.append("tags LIKE ?")
+                params.append(f"%{functional}%")
+            if "extra_json" in columns:
+                functional_clauses.append("extra_json LIKE ?")
+                params.append(f"%{functional}%")
+            if functional_clauses:
+                clauses.append("(" + " OR ".join(functional_clauses) + ")")
+        if calc_type and "extra_json" in columns:
+            clauses.append("extra_json LIKE ?")
+            params.append(f"%{calc_type}%")
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        sql = f"SELECT * FROM entries{where} ORDER BY cached_at DESC, content_hash ASC LIMIT ?"
+        params.append(int(limit))
+        return [_row_to_dict(row) for row in conn.execute(sql, params).fetchall()]
+    finally:
+        conn.close()

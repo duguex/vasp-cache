@@ -223,12 +223,13 @@ def main(argv: list[str] | None = None) -> int:
 
     from vasp_cache.logutil import setup_logging
 
-    if args.verbose >= 2:
-        setup_logging("DEBUG")
-    elif args.verbose >= 1:
-        setup_logging("INFO")
-    else:
-        setup_logging("WARNING")
+    if args.cmd != "inspect":
+        if args.verbose >= 2:
+            setup_logging("DEBUG")
+        elif args.verbose >= 1:
+            setup_logging("INFO")
+        else:
+            setup_logging("WARNING")
 
     if args.cmd == "put":
         from vasp_cache.api import put

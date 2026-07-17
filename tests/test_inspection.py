@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import sqlite3
 from pathlib import Path
 
 from conftest import write_complete_calc
@@ -9,6 +11,27 @@ from vasp_cache import cas
 from vasp_cache.api import put
 from vasp_cache.inspection import entry, objects, summary, entries
 from vasp_cache.paths import _reset_project
+
+_LEGACY_SCHEMA = """
+CREATE TABLE entries (
+    content_hash TEXT PRIMARY KEY,
+    formula TEXT,
+    task_name TEXT,
+    total_energy REAL,
+    converged INTEGER,
+    bandgap REAL,
+    nsites INTEGER,
+    max_abc REAL,
+    tags TEXT,
+    source_dir TEXT,
+    profile_id TEXT,
+    key_generation INTEGER,
+    mapping_digest TEXT,
+    cached_at REAL NOT NULL,
+    objects_json TEXT NOT NULL,
+    extra_json TEXT
+)
+"""
 
 
 def test_summary_empty_cache_does_not_create_database(tmp_path: Path):
@@ -112,5 +135,52 @@ def test_objects_are_digest_sorted_and_summary_accounts_for_missing_refs(
     missing = next(r for r in rows if r["digest"] == digest)
     assert missing["orphan"] is False
     result = summary(cache_root)
-    assert result["referenced_objects"] >= 1
+    assert result["referenced_objects"] == result["cas_objects"] - 1
+    assert result["referenced_bytes"] == result["cas_bytes"] - len(b"orphan")
     assert result["orphan_objects"] == 1
+
+def test_inspection_legacy_database_is_read_only(cache_root: Path):
+    db = cache_root / "meta.sqlite"
+    content_hash = "legacy-hash"
+    conn = sqlite3.connect(db)
+    conn.execute(_LEGACY_SCHEMA)
+    conn.execute(
+        "INSERT INTO entries (content_hash, formula, cached_at, objects_json) "
+        "VALUES (?, ?, ?, ?)",
+        (content_hash, "Si", 1.0, json.dumps({"OUTCAR": "not-a-digest"})),
+    )
+    conn.commit()
+    conn.close()
+
+    before_conn = sqlite3.connect(db)
+    try:
+        before = {
+            row[1] for row in before_conn.execute("PRAGMA table_info(entries)")
+        }
+    finally:
+        before_conn.close()
+    assert summary(cache_root)["entries"] == 1
+    assert entries(cache_root, provenance="all", limit=10)
+    assert entry(cache_root, content_hash) is not None
+    after_conn = sqlite3.connect(db)
+    try:
+        after = {
+            row[1] for row in after_conn.execute("PRAGMA table_info(entries)")
+        }
+    finally:
+        after_conn.close()
+    assert after == before
+    assert not (cache_root / "meta.sqlite-wal").exists()
+    assert not (cache_root / "meta.sqlite-shm").exists()
+
+
+def test_inspection_wal_metadata_does_not_create_sidecars(
+    cache_root: Path, tmp_path: Path
+):
+    _reset_project()
+    assert put(write_complete_calc(tmp_path / "calc"), provenance="canonical")
+    _reset_project()
+    sidecars = (cache_root / "meta.sqlite-wal", cache_root / "meta.sqlite-shm")
+    assert all(not path.exists() for path in sidecars)
+    summary(cache_root)
+    assert all(not path.exists() for path in sidecars)
