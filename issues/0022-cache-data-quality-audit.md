@@ -4,24 +4,32 @@
 **Severity:** High — data trust / storage integrity  
 **Component:** `inspect`, `meta.sqlite`, CAS, audit/reporting
 
-## Status
+First health pass implemented. The default report is a read-only, fast SQLite
+metadata-quality report, and `health --scan-cas` is an explicit streaming CAS
+walk with progress and an optional object bound. The fast real-cache run
+observed 106,348 metadata entries, generations 2/4, all rows with
+`provenance=unknown` and `provenance_source=legacy`, and 1,427 missing energies.
+The current evidence ran only a bounded 1,000-object CAS scan, observing 1,000
+physical objects and 2,399,452,504 scanned bytes, with reconciliation totals
+marked partial (`null`). An unbounded `health --scan-cas` run supports exact
+physical, reference, missing-reference, and orphan totals when completed; no
+full shared-cache audit result is claimed from the bounded evidence.
 
-Open. The current shared cache contains 106,348 entries, mostly generation-4
-records, and all existing rows report `provenance=unknown`. The fast overview
-also exposes a very wide total-energy range that requires validation rather than
-being silently treated as correct.
+The wide total-energy range remains a review flag, not a scientific validity
+judgment. No metadata or CAS repair/deletion is performed by this audit.
 
 ## Problem
 
-The cache can currently answer exact lookup and metadata queries, but it does
-not yet provide a bounded, complete audit of the actual stored data:
+The cache now has a read-only health report, but the current shared-cache
+evidence is bounded rather than a full audit result:
 
 - metadata rows may use legacy key generations and legacy provenance defaults;
 - metadata object references may point to missing CAS objects;
 - physical CAS objects may be orphaned and consume space without any metadata
   reference;
-- CAS byte totals and reference totals require a full filesystem scan that is
-  too slow for the current large cache when run synchronously;
+- the current evidence scanned only 1,000 CAS objects; an unbounded
+  `health --scan-cas` run supports exact physical/reference/orphan totals when
+  completed, but no full shared-cache result is claimed here;
 - extreme metadata values, such as total-energy outliers, are visible but not
   yet classified as valid, suspicious, or malformed.
 
@@ -80,20 +88,27 @@ legacy provenance default != explicit scientific classification
 
 ## Acceptance
 
-- [ ] A fixture audit covers a valid entry, a missing referenced object, and an
+- [x] Fixture tests cover a valid entry, a missing referenced object, and an
       orphan object with shared CAS references.
-- [ ] Real-cache report gives exact counts for metadata rows, generations,
-      provenance sources, physical objects, referenced objects, missing refs,
-      orphan objects, and bytes.
-- [ ] Report verifies digest/path consistency and does not mutate metadata or
-      CAS state.
-- [ ] Audit handles the current large cache without an unbounded synchronous
-      command timeout; progress or resumability is documented and tested.
-- [ ] Energy anomaly reporting preserves raw evidence and does not delete or
-      relabel entries automatically.
-- [ ] JSON/JSONL output is stable enough for diffing between audit runs.
-- [ ] User documentation explains the difference between `overview`, `health`,
-      `summary`, and future `gc` workflows.
+- [ ] The fast real-cache report gives exact metadata counts, generations, and
+      provenance sources; a full real-cache CAS walk has not been run, so exact
+      physical objects, referenced objects, missing refs, orphan objects, and
+      bytes are intentionally not claimed here.
+- [x] The first pass verifies CAS path/layout consistency and object presence
+      for scanned objects and does not mutate metadata or CAS state. It does
+      not hash blob contents.
+- [x] The audit handles the large cache without an unbounded synchronous health
+      command: progress is emitted on CAS scans and `--max-objects` bounds a
+      scan. Bounded reconciliation totals are partial/`null` by design.
+- [x] Energy anomaly reporting preserves raw evidence and does not delete or
+      relabel entries automatically; configured bounds are review flags only.
+- [x] JSON output is deterministic (`sort_keys=True`) and stable enough for
+      diffing between audit runs.
+- [x] User documentation explains `overview`, `health`, `summary`, and that
+      GC/repair workflows are not implemented.
+
+Remaining limitations: blob-content hashing and automatic repair/deletion are
+not implemented in this first health pass.
 
 ## Related
 

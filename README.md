@@ -75,6 +75,7 @@ logical metadata entries and the physical objects they reference:
 
 ```bash
 vasp-cache inspect overview --top-formulas 20
+vasp-cache inspect health [--scan-cas]
 vasp-cache inspect summary
 vasp-cache inspect entries --formula GaN --provenance all --limit 50
 vasp-cache inspect entries --jsonl --limit 1000
@@ -95,11 +96,21 @@ this makes the metadata-to-CAS relationship explicit. `objects` reports
 physical CAS objects and their metadata references. `--orphans-only` only
 reports unreferenced objects; it never deletes them.
 
-Inspection is observational only: it does not repair missing objects, run
-health checks, or perform garbage collection. Future `health` and `gc`
-commands will require separate explicit workflows. The existing `status`
-command remains a quick stats/preview view; use `inspect overview` for fast
-whole-database context and the other inspect views for detail.
+`health` is the read-only metadata-quality and optional CAS-integrity report:
+it reads SQLite by default and only walks CAS when `--scan-cas` is explicit. An
+unbounded `health --scan-cas` run supports exact physical, reference, missing-
+reference, and orphan totals when it completes. The current shared-cache
+evidence used only a bounded 1,000-object scan, so it does not claim a full
+shared-cache audit result. Unlike `overview`, which is a fast SQLite-only
+aggregate, `health` reports data-quality findings and optional CAS integrity;
+`summary` remains the slower storage-total view that scans metadata references
+and physical CAS objects.
+
+Inspection and health are observational only: they do not repair missing
+objects, delete cache state, or perform garbage collection. The existing
+`status` command remains a quick stats/preview view; use `inspect overview` for
+fast whole-database context, `inspect summary` for storage totals, and
+`inspect health` for metadata quality or an explicit CAS scan.
 
 ## Cache root
 
