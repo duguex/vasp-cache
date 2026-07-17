@@ -130,12 +130,15 @@ def _scan_cas(
     max_objects: int | None,
     progress: Callable[[int], None] | None,
 ) -> dict[str, Any]:
+    """Scan physical CAS objects, marking physical fields unknown when bounded."""
     if max_objects is not None and max_objects < 0:
         raise ValueError("max_objects must be non-negative")
     physical: dict[str, tuple[Path, int, bool]] = {}
-    limited = False
+    limited = max_objects == 0
     count = 0
     iterator = cas.iter_objects(root)
+    if max_objects == 0 and progress is not None:
+        progress(0)
     for digest, path in iterator:
         if max_objects is not None and count >= max_objects:
             limited = True
@@ -158,15 +161,24 @@ def _scan_cas(
     reference_digests = set(references)
     referenced_physical = physical_digests & reference_digests
     orphan_digests = physical_digests - reference_digests
+    complete = not limited
     return {
         "scan_performed": True,
         "physical_objects": len(physical),
         "physical_bytes": sum(value[1] for value in physical.values()),
+        # referenced_objects counts unique metadata digests, including missing ones.
         "referenced_objects": len(reference_digests),
-        "referenced_bytes": sum(physical[digest][1] for digest in referenced_physical),
-        "missing_references": len(reference_digests - physical_digests),
-        "orphan_objects": len(orphan_digests),
-        "orphan_bytes": sum(physical[digest][1] for digest in orphan_digests),
+        # Physical reference and anomaly fields are unknowable for a bounded scan.
+        "physical_referenced_objects": len(referenced_physical) if complete else None,
+        "referenced_bytes": (
+            sum(physical[digest][1] for digest in referenced_physical) if complete else None
+        ),
+        "missing_references": len(reference_digests - physical_digests) if complete else None,
+        "orphan_objects": len(orphan_digests) if complete else None,
+        "orphan_bytes": (
+            sum(physical[digest][1] for digest in orphan_digests) if complete else None
+        ),
+        # This is metadata-reference multiplicity, not physical-object sharing.
         "shared_reference_objects": sum(count > 1 for count in references.values()),
         "path_mismatches": sum(not value[2] for value in physical.values()),
         "limited": limited,
@@ -182,7 +194,12 @@ def health_report(
     energy_max: float | None = None,
     progress: Callable[[int], None] | None = None,
 ) -> dict[str, Any]:
-    """Return a deterministic, read-only health report for *cache_root*."""
+    """Return a deterministic, read-only health report for *cache_root*.
+
+    CAS reference counts are unique metadata digests (including missing ones).
+    Physical reference and anomaly fields are exact only for an unbounded scan;
+    bounded scans report those fields as ``None``.
+    """
     root = Path(cache_root)
     metadata, references, energy = _metadata_report(root, energy_min, energy_max)
     if scan_cas:
@@ -194,6 +211,7 @@ def health_report(
             "physical_objects": 0,
             "physical_bytes": 0,
             "referenced_objects": len(references),
+            "physical_referenced_objects": None,
             "referenced_bytes": 0,
             "missing_references": 0,
             "orphan_objects": 0,
