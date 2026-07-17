@@ -52,11 +52,14 @@ _BASE_FIELDS = {
 
 def _materialize_inputs(root: Path, entry: dict[str, Any], dest: Path) -> None:
     objects = entry.get("objects") or {}
-    for name in ("INCAR", "POSCAR", "KPOINTS", "CONTCAR"):
+    for name in ("INCAR", "POSCAR", "KPOINTS"):
         digest = objects.get(name)
-        if digest and cas.has_object(root, digest):
-            cas.materialize(root, digest, dest / name)
-
+        if not digest or not cas.has_object(root, digest):
+            raise FileNotFoundError(f"required CAS object missing: {name}")
+        cas.materialize(root, digest, dest / name)
+    digest = objects.get("CONTCAR")
+    if digest and cas.has_object(root, digest):
+        cas.materialize(root, digest, dest / "CONTCAR")
 
 def _new_hash(root: Path, entry: dict[str, Any]) -> str:
     with tempfile.TemporaryDirectory(prefix="rehash_") as td:
