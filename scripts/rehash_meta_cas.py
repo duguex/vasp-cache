@@ -82,31 +82,33 @@ def _group_row(
     group["output_digests"].append((entry.get("objects") or {}).get("OUTCAR"))
 
 
+def _read_inventory_entries(root: Path, limit: int) -> list[dict[str, Any]]:
+    conn = meta.connect_readonly(root)
+    if conn is None:
+        return []
+    try:
+        query = "SELECT * FROM entries ORDER BY cached_at"
+        params: tuple[int, ...] = ()
+        if limit > 0:
+            query += " LIMIT ?"
+            params = (limit,)
+        rows = conn.execute(query, params).fetchall()
+        return [meta._row_to_dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
 def inventory_root(root: Path, *, limit: int = 0) -> dict[str, Any]:
     """Inventory generation changes without modifying rows or CAS objects."""
     if limit < 0:
         raise ValueError("limit must be non-negative")
-    conn = meta.connect_readonly(root)
-    if conn is None:
-        rows = []
-    else:
-        try:
-            rows = conn.execute(
-                "SELECT content_hash FROM entries ORDER BY cached_at"
-            ).fetchall()
-        finally:
-            conn.close()
-    if limit:
-        rows = rows[:limit]
+    entries = _read_inventory_entries(root, limit)
 
     groups: dict[str, dict[str, Any]] = {}
     errors: list[dict[str, str]] = []
-    for row in rows:
-        old_hash = row["content_hash"]
+    for entry in entries:
+        old_hash = entry["content_hash"]
         try:
-            entry = meta.get_entry(root, old_hash)
-            if entry is None:
-                raise KeyError(f"metadata row missing: {old_hash}")
             new_hash = _new_hash(root, entry)
             group = groups.setdefault(
                 new_hash,
@@ -134,7 +136,7 @@ def inventory_root(root: Path, *, limit: int = 0) -> dict[str, Any]:
         else:
             safe.append(group)
     return {
-        "rows": len(rows),
+        "rows": len(entries),
         "groups": groups,
         "safe": safe,
         "unchanged": unchanged,
