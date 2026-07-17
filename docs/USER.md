@@ -62,6 +62,7 @@ vasp-cache mapping show
 
 ```bash
 vasp-cache inspect overview --top-formulas 20
+vasp-cache inspect health [--scan-cas] [--max-objects N] [--json]
 vasp-cache inspect summary
 vasp-cache inspect entries --formula GaN --provenance all --limit 50
 vasp-cache inspect entries --jsonl --limit 1000
@@ -69,20 +70,39 @@ vasp-cache inspect entry 5:...
 vasp-cache inspect objects --orphans-only
 ```
 
-`overview` 是快速的 SQLite 聚合视图：展示条目数、化学式数、能量和收敛覆盖率、
-provenance、identity generation、最常见化学式以及时间/能量范围；明确不扫描
-CAS，并返回 `storage_scan: false`。`summary` 还会扫描 metadata 引用和物理 CAS
-对象，计算存储量，因此大型数据库上更慢。
+这里的命令边界很重要：`overview` = 快速的 SQLite 聚合视图；它展示条目数、
+化学式数、能量和收敛覆盖率、provenance、identity generation、最常见化学式
+以及时间/能量范围，明确不扫描 CAS，并返回 `storage_scan: false`。`health` =
+只读的元数据质量报告；默认只读 SQLite，只有明确传入 `--scan-cas` 才扫描物理
+CAS。`summary` = 较慢的完整存储汇总，会扫描 metadata 引用和物理 CAS 对象并
+计算存储量。GC/repair（清理、修复）尚未实现。
+为了避免把不同层次的结果混为一谈：
+
+```text
+overview = fast SQLite aggregates
+health = read-only metadata quality report; CAS scan only with --scan-cas
+summary = slower full storage summary
+GC/repair = not implemented
+```
+
+`health` 的能量上下界选项只产生供人工复核的 flags，**不是**对科学有效性、
+收敛性或结果正确性的判断，也不会重标记、删除或改写条目。CAS 扫描会逐个在
+stderr 报告进度；对大型共享缓存可用 `--max-objects N` 做有界扫描。达到上限
+时，物理对象/字节仍是已扫描部分，但需要完整物理扫描才能和 metadata 引用
+核对的字段（例如 `referenced_*`、missing/orphan totals）会报告为 `null`，
+不可当作全库精确总数。`report_timestamp` 是本次运行的 UTC 报告版本时间，
+用于比较报告运行，不表示缓存内容的修改时间或内容差异。
 
 `entries` 列出筛选后的元数据；`entry` 展示完整条目，并为每个逻辑输出列出
 CAS digest、大小、是否存在及 CAS 相对路径，从而透明显示元数据到 CAS 对象的
 对应关系。`objects` 展示物理 CAS 对象及其元数据引用。`--orphans-only` 只报告
 未被引用的对象，不会删除任何对象。
 
-`inspect` 只负责观测：不会修复缺失对象、执行 health 检查或自动 gc。未来的
-`health` 和 `gc` 命令必须走各自明确的显式工作流；检查本身不会触发清理。现有
-`status` 仍是快速统计/预览；需要全库上下文时优先使用 `inspect overview`，需要
-CAS 级详情时再使用其他 inspect 视图。
+所有 `inspect` 命令只负责观测：不会修复缺失对象、执行自动 GC 或修改缓存。
+现有 `status` 仍是快速统计/预览；需要全库上下文时优先使用 `inspect overview`，
+需要完整存储汇总时使用 `inspect summary`，需要元数据质量或显式 CAS 扫描时使用
+`inspect health`。
+
 
 ## Read-only Materials Atlas dashboard
 

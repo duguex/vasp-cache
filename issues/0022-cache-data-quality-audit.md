@@ -6,10 +6,19 @@
 
 ## Status
 
-Open. The current shared cache contains 106,348 entries, mostly generation-4
-records, and all existing rows report `provenance=unknown`. The fast overview
-also exposes a very wide total-energy range that requires validation rather than
-being silently treated as correct.
+First health pass implemented. The default report is a read-only, fast SQLite
+metadata-quality report, and `--scan-cas` is an explicit streaming CAS walk with
+progress and an optional object bound. The fast real-cache run observed 106,348
+metadata entries, generations 2/4, all rows with `provenance=unknown` and
+`provenance_source=legacy`, and 1,427 missing energies. A bounded 1,000-object
+CAS run observed 1,000 physical objects and 2,399,452,504 scanned bytes, and
+correctly marked reconciliation totals as partial (`null`). A full exact
+real-cache CAS audit has not been run, so full physical/reference/orphan counts
+and bytes remain open.
+
+The wide total-energy range remains a review flag, not a scientific validity
+judgment. No metadata or CAS repair/deletion is performed by this audit.
+
 
 ## Problem
 
@@ -80,20 +89,27 @@ legacy provenance default != explicit scientific classification
 
 ## Acceptance
 
-- [ ] A fixture audit covers a valid entry, a missing referenced object, and an
+- [x] Fixture tests cover a valid entry, a missing referenced object, and an
       orphan object with shared CAS references.
-- [ ] Real-cache report gives exact counts for metadata rows, generations,
-      provenance sources, physical objects, referenced objects, missing refs,
-      orphan objects, and bytes.
-- [ ] Report verifies digest/path consistency and does not mutate metadata or
-      CAS state.
-- [ ] Audit handles the current large cache without an unbounded synchronous
-      command timeout; progress or resumability is documented and tested.
-- [ ] Energy anomaly reporting preserves raw evidence and does not delete or
-      relabel entries automatically.
-- [ ] JSON/JSONL output is stable enough for diffing between audit runs.
-- [ ] User documentation explains the difference between `overview`, `health`,
-      `summary`, and future `gc` workflows.
+- [ ] The fast real-cache report gives exact metadata counts, generations, and
+      provenance sources; a full real-cache CAS walk has not been run, so exact
+      physical objects, referenced objects, missing refs, orphan objects, and
+      bytes are intentionally not claimed here.
+- [x] The first pass verifies CAS path/layout consistency and object presence
+      for scanned objects and does not mutate metadata or CAS state. It does
+      not hash blob contents.
+- [x] The audit handles the large cache without an unbounded synchronous health
+      command: progress is emitted on CAS scans and `--max-objects` bounds a
+      scan. Bounded reconciliation totals are partial/`null` by design.
+- [x] Energy anomaly reporting preserves raw evidence and does not delete or
+      relabel entries automatically; configured bounds are review flags only.
+- [x] JSON output is deterministic (`sort_keys=True`) and stable enough for
+      diffing between audit runs.
+- [x] User documentation explains `overview`, `health`, `summary`, and that
+      GC/repair workflows are not implemented.
+
+Remaining limitations: blob-content hashing, exact full-cache CAS totals, and
+automatic repair/deletion are not implemented in this first health pass.
 
 ## Related
 
