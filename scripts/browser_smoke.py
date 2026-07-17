@@ -17,6 +17,10 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT / 'src') not in sys.path:
+    sys.path.insert(0, str(ROOT / 'src'))
+
 try:
     from playwright.sync_api import Error as PlaywrightError
     from playwright.sync_api import sync_playwright
@@ -29,8 +33,6 @@ except ImportError:
     )
     raise SystemExit(2)
 
-
-ROOT = Path(__file__).resolve().parents[1]
 
 
 def _fixture_rows(offset: int = 0) -> list[dict[str, object]]:
@@ -152,42 +154,93 @@ def run_smoke(url: str) -> None:
 
         # Formula filtering must render the empty state without a full navigation.
         page.locator("#formula").fill("NoSuchFormula")
-        page.wait_for_timeout(400)
-        assert "No records match formula: NoSuchFormula" in page.locator("#catalog-state").inner_text()
+        page.wait_for_function("document.querySelector('#catalog-state').textContent.includes('No records match formula: NoSuchFormula')")
         assert len(load_events) == initial_load_count, load_events
         page.locator("#formula").fill("Si")
         page.locator("#formula").press("Enter")
-        page.wait_for_function("document.querySelectorAll('.catalog-row').length > 0")
+        page.wait_for_function("document.querySelectorAll('.catalog-row').length > 0 && document.querySelector('.catalog-row').dataset.hash === 'hash-00'")
         assert "formula=Si" in page.url
         assert len(load_events) == initial_load_count, load_events
 
         # Restore the catalog, then paginate through history.replaceState only.
         page.locator("#clear-filters").click()
-        page.wait_for_function("!document.querySelector('#next-page').disabled")
+        page.wait_for_function("!document.querySelector('#next-page').disabled && document.querySelector('#page-status').textContent.trim() === 'PAGE 1'")
         page.locator("#next-page").click()
-        page.locator("#page-status").wait_for(state="visible")
-        assert page.locator("#page-status").inner_text() == "PAGE 2"
+        page.wait_for_function("document.querySelector('#page-status').textContent.trim() === 'PAGE 2' && document.querySelector('.catalog-row')?.dataset.hash === 'hash-25'")
         assert len(load_events) == initial_load_count, load_events
         assert urlparse(page.url).path == urlparse(url).path
 
-        # Detail drawer exposes normalized identity and CAS presence status.
+        # Detail waits for the requested identity, source, and both CAS statuses.
         page.locator(".catalog-row").first.click()
-        page.locator("#detail-drawer").wait_for(state="visible")
+        page.wait_for_function("""
+            () => {
+              const drawer = document.querySelector('#detail-drawer');
+              const content = document.querySelector('#drawer-content')?.textContent || '';
+              return drawer?.getAttribute('aria-hidden') === 'false'
+                && content.includes('hash-25')
+                && content.includes('Si')
+                && content.includes('/cache/Si/relax-00')
+                && content.includes('vasprun.xml')
+                && content.includes('OUTCAR')
+                && content.includes('present')
+                && content.includes('missing');
+            }
+        """)
         assert page.locator("#detail-drawer").get_attribute("aria-hidden") == "false"
-        assert "Stored objects" in page.locator("#drawer-content").inner_text()
-        assert "present" in page.locator("#drawer-content").inner_text()
+        detail_text = page.locator("#drawer-content").inner_text()
+        assert "hash-25" in detail_text
+        assert "Si" in detail_text
+        assert "/cache/Si/relax-00" in detail_text
+        assert "vasprun.xml" in detail_text and "present" in detail_text
+        assert "OUTCAR" in detail_text and "missing" in detail_text
+
+        # Tab and Shift+Tab remain inside the open drawer.
+        page.locator("#close-drawer").focus()
+        page.keyboard.press("Shift+Tab")
+        assert page.evaluate("document.activeElement?.closest('#detail-drawer') !== null")
+        page.keyboard.press("Tab")
+        assert page.evaluate("document.activeElement?.id === 'close-drawer'")
+
         page.locator("#run-storage-scan").click()
         page.wait_for_function("document.querySelector('#storage-scan-result').textContent.includes('object records returned')")
         page.locator("#close-drawer").click()
         page.wait_for_timeout(40)
         page.locator(".catalog-row").first.dispatch_event("click")
-        page.wait_for_function("document.querySelector('#detail-drawer').getAttribute('aria-hidden') === 'false'")
+        page.wait_for_function("""
+            () => document.querySelector('#detail-drawer')?.getAttribute('aria-hidden') === 'false'
+              && document.querySelector('#drawer-content')?.textContent.includes('hash-25')
+        """)
         page.wait_for_timeout(260)
         assert page.evaluate("!document.querySelector('#detail-drawer').hidden")
         page.locator("#close-drawer").click()
+        page.wait_for_function("document.querySelector('#detail-drawer').hidden")
 
-        # The drawer remains bounded at a narrow viewport and hidden after close.
+        # Repeat filter, row, and detail interactions at the required narrow viewport.
         page.set_viewport_size({"width": 390, "height": 844})
+        page.locator("#formula").fill("NoSuchFormula")
+        page.wait_for_function("document.querySelector('#catalog-state').textContent.includes('No records match formula: NoSuchFormula')")
+        page.locator("#formula").fill("Si")
+        page.locator("#formula").press("Enter")
+        page.wait_for_function("document.querySelectorAll('.catalog-row').length > 0 && document.querySelector('.catalog-row').dataset.hash === 'hash-00'")
+        assert "formula=Si" in page.url
+        page.locator("#clear-filters").click()
+        page.wait_for_function("document.querySelector('#page-status').textContent.trim() === 'PAGE 1' && !document.querySelector('#next-page').disabled")
+        narrow_row = page.locator(".catalog-row").first
+        narrow_row.scroll_into_view_if_needed()
+        narrow_row.click()
+        page.wait_for_function("""
+            () => {
+              const drawer = document.querySelector('#detail-drawer');
+              const content = document.querySelector('#drawer-content')?.textContent || '';
+              return drawer?.getAttribute('aria-hidden') === 'false'
+                && content.includes('hash-00')
+                && content.includes('/cache/Si/relax-00')
+                && content.includes('present')
+                && content.includes('missing');
+            }
+        """)
+        assert page.evaluate("document.querySelector('.detail-drawer').getBoundingClientRect().width <= innerWidth")
+        page.locator("#close-drawer").click()
         page.wait_for_function("document.querySelector('#detail-drawer').hidden")
         assert page.locator("#detail-drawer").get_attribute("aria-hidden") == "true"
         assert page.locator("#detail-drawer").bounding_box() is None

@@ -326,6 +326,26 @@
     }
   }
 
+  function trapDrawerFocus(event) {
+    if (event.key !== 'Tab' || els.drawer.hidden || els.drawer.getAttribute('aria-hidden') !== 'false') return;
+    const focusables = [...els.drawer.querySelectorAll('a[href], area[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')]
+      .filter((element) => element.getClientRects().length > 0);
+    if (!focusables.length) {
+      event.preventDefault();
+      els.drawer.focus();
+      return;
+    }
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    if (event.shiftKey && (document.activeElement === first || document.activeElement === els.drawer || !els.drawer.contains(document.activeElement))) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && (document.activeElement === last || !els.drawer.contains(document.activeElement))) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
   function closeDrawer() {
     state.detailRequestId += 1;
     els.drawer.classList.remove('is-open');
@@ -397,7 +417,10 @@
   });
   els.closeDrawer.addEventListener('click', closeDrawer);
   els.backdrop.addEventListener('click', closeDrawer);
-  document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && !els.drawer.hidden) closeDrawer(); });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !els.drawer.hidden) closeDrawer();
+    trapDrawerFocus(event);
+  });
 
   parseUrlState();
   syncControls();
