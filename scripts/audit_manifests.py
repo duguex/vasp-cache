@@ -158,6 +158,8 @@ def audit_root(
             report["rows_selected"] += 1
             try:
                 content_hash = row["content_hash"]
+                if not isinstance(content_hash, str) or not content_hash:
+                    raise ValueError("content_hash must be a non-empty string")
                 entry = meta._row_to_dict(row)
             except Exception as exc:
                 try:
@@ -168,11 +170,11 @@ def audit_root(
                     {"content_hash": content_hash, "error": str(exc)}
                 )
                 continue
-
             try:
-                objects = entry.get("objects") or {}
-                if not isinstance(objects, dict):
-                    raise TypeError("objects must be a JSON object")
+                objects_value = entry.get("objects")
+                if not isinstance(objects_value, dict) or not objects_value:
+                    raise TypeError("objects must be a non-empty JSON object")
+                objects = objects_value
                 manifest, manifest_digest = _manifest(objects)
                 checks = [
                     _object_check(
