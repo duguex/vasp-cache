@@ -24,6 +24,15 @@ def _non_negative_limit(value: str) -> int:
         raise argparse.ArgumentTypeError("limit must be non-negative")
     return limit
 
+def _json_safe_identifier(value: Any) -> Any:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return "hex:" + bytes(value).hex()
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    return {"type": type(value).__name__, "repr": repr(value)}
+
 
 def _manifest(objects: dict[Any, Any]) -> tuple[dict[str, Any], str]:
     normalized = {
@@ -167,7 +176,7 @@ def audit_root(
                 except Exception:
                     content_hash = None
                 report["errors"].append(
-                    {"content_hash": content_hash, "error": str(exc)}
+                    {"content_hash": _json_safe_identifier(content_hash), "error": str(exc)}
                 )
                 continue
             try:
@@ -188,7 +197,7 @@ def audit_root(
                 ]
             except Exception as exc:
                 report["errors"].append(
-                    {"content_hash": content_hash, "error": str(exc)}
+                    {"content_hash": _json_safe_identifier(content_hash), "error": str(exc)}
                 )
                 continue
 
