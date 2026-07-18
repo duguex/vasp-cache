@@ -145,7 +145,7 @@ def test_manifest_digest_is_canonical_and_distinct_from_cas_digest(cache_root: P
 
 def test_malformed_row_is_error_and_later_rows_continue(cache_root: Path):
     _seed_entry(cache_root, "bad", {"OUTCAR": EXPECTED_DIGEST}, cached_at=1)
-    _seed_entry(cache_root, "good", {}, cached_at=2)
+    _seed_entry(cache_root, "good", {"OUTCAR": EXPECTED_DIGEST}, cached_at=2)
     connection = meta.connect(cache_root)
     connection.execute(
         "UPDATE entries SET objects_json = ? WHERE content_hash = ?",
@@ -177,3 +177,37 @@ def test_audit_missing_root_does_not_create_state(tmp_path: Path):
 def test_audit_rejects_negative_limit(cache_root: Path):
     with pytest.raises(ValueError, match="non-negative"):
         audit_root(cache_root, limit=-1)
+
+@pytest.mark.parametrize("objects", [None, {}, [], "", 0, False])
+def test_audit_rejects_empty_or_non_object_shapes(cache_root: Path, objects: object):
+    _seed_entry(cache_root, "bad-objects", objects, cached_at=1)  # type: ignore[arg-type]
+
+    report = audit_root(cache_root)
+
+    assert report["candidates"] == []
+    assert report["conflicts"] == []
+    assert report["errors"] == [
+        {
+            "content_hash": "bad-objects",
+            "error": "objects must be a non-empty JSON object",
+        }
+    ]
+
+@pytest.mark.parametrize("content_hash", [None, "", b"not-text"])
+def test_audit_rejects_invalid_content_hash_rows(
+    cache_root: Path, content_hash: object
+):
+    _seed_entry(
+        cache_root,
+        content_hash,  # type: ignore[arg-type]
+        {"OUTCAR": EXPECTED_DIGEST},
+        cached_at=1,
+    )
+
+    report = audit_root(cache_root)
+
+    assert report["candidates"] == []
+    assert report["conflicts"] == []
+    assert len(report["errors"]) == 1
+    assert report["errors"][0]["content_hash"] == content_hash
+    assert report["errors"][0]["error"] == "content_hash must be a non-empty string"
