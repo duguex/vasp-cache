@@ -162,6 +162,26 @@ def test_malformed_row_is_error_and_later_rows_continue(cache_root: Path):
         "good"
     ]
 
+def test_blob_content_hash_error_is_json_safe_and_later_rows_continue(
+    cache_root: Path, capsys: pytest.CaptureFixture[str]
+):
+    _seed_entry(cache_root, b"\x00\xff", {"OUTCAR": EXPECTED_DIGEST}, cached_at=1)
+    _seed_entry(cache_root, "good", {"OUTCAR": EXPECTED_DIGEST}, cached_at=2)
+
+    exit_code = _AUDIT.main(["--root", str(cache_root), "--json"])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["errors"] == [
+        {
+            "content_hash": "hex:00ff",
+            "error": "content_hash must be a non-empty string",
+        }
+    ]
+    assert [candidate["candidate_id"] for candidate in payload["candidates"]] == [
+        "good"
+    ]
+
 
 def test_audit_missing_root_does_not_create_state(tmp_path: Path):
     root = tmp_path / "missing"
@@ -193,9 +213,12 @@ def test_audit_rejects_empty_or_non_object_shapes(cache_root: Path, objects: obj
         }
     ]
 
-@pytest.mark.parametrize("content_hash", [None, "", b"not-text"])
+@pytest.mark.parametrize(
+    ("content_hash", "expected_identifier"),
+    [(None, None), ("", ""), (b"not-text", "hex:6e6f742d74657874")],
+)
 def test_audit_rejects_invalid_content_hash_rows(
-    cache_root: Path, content_hash: object
+    cache_root: Path, content_hash: object, expected_identifier: str | None
 ):
     _seed_entry(
         cache_root,
@@ -209,5 +232,5 @@ def test_audit_rejects_invalid_content_hash_rows(
     assert report["candidates"] == []
     assert report["conflicts"] == []
     assert len(report["errors"]) == 1
-    assert report["errors"][0]["content_hash"] == content_hash
+    assert report["errors"][0]["content_hash"] == expected_identifier
     assert report["errors"][0]["error"] == "content_hash must be a non-empty string"
