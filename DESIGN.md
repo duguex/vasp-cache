@@ -1,29 +1,37 @@
 # vasp-cache design
 
-Canonical design: **`docs/superpowers/specs/2026-07-14-vasp-cache-signac-design.md`**.
-
-Implementation plan: **`docs/superpowers/plans/2026-07-14-vasp-cache-signac.md`**.
+Design spec: **`docs/superpowers/specs/2026-07-18-v3-layered-identity.md`**
 
 ## Summary
 
 | Item | Choice |
 |------|--------|
-| Backend | signac Project |
-| Primary I/O | `put(complete calc)` / `fetch(inputs → outputs)` |
-| Key | Mapping Profile → hard `content_hash` |
-| Soft map | Tunable weights (not ML embeddings) |
-| Payload | Original OUTCAR/CONTCAR/… in job workspace |
-| Legacy maggma JSONStore | Abandoned |
+| Backend | SQLite (index.sqlite) |
+| Primary I/O | `put(dir)` → `fetch(key, dir)` |
+| Key | 6-layer SHA-256 (formula, incar, structure, kpoints, potcar, lattice) |
+| Payload | Zlib-compressed BLOBs (OUTCAR, vasprun, CONTCAR) |
+| Structured extracts | Energy, magnetism, potentials, convergence |
+| Collision | Converged > unconverged; audit table |
 
 ## Package layout
 
 ```
 src/vasp_cache/
-  paths.py         cache root + get_project()
-  mapping.py       profile load + digest + soft distance
-  fingerprint.py   critical field extraction helpers
-  parse.py         summarize_calc for job.doc
-  api.py           put/has/fetch/query/…
-  cli.py           vasp-cache CLI
-  data/mapping.default.yaml
+  index.py          SQLite schema, put/fetch/rebuild, identity, collision
+  api.py            Public API wrapper
+  cli.py            CLI (argparse)
+  outcar.py         OUTCAR parser/serializer
+  vasprun_ast.py    vasprun.xml AST round-trip
+  errors.py         IdentityInputError
+  paths.py          cache root resolution
+  web/              Dashboard (static HTML/JS/CSS)
 ```
+
+## All docs
+
+| File | Content |
+|------|---------|
+| README.md | Project overview, quick start |
+| docs/USER.md | Full user guide |
+| docs/INTEGRATION.md | Integration guide for downstream projects |
+| docs/superpowers/specs/2026-07-18-v3-layered-identity.md | Design spec |
