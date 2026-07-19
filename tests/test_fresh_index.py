@@ -2,6 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import json
+import os
+import sqlite3
+import time
+import pytest
+from unittest.mock import patch
 from vasp_cache.api import fetch, has, put, query, rebuild
 from vasp_cache.index import identity_for_directory, normalize_incar
 
@@ -403,3 +409,113 @@ def test_stats_uses_direct_sql(cache_root: Path, tmp_path: Path):
     assert result["formulas"] == 1
     assert result["backend"] == "sqlite-index"
     assert result["total_blob_bytes"] > 0
+
+
+# --- #26 regression tests -------------------------------------------------
+
+def test_final_energy_zero_preserved(cache_root: Path, tmp_path: Path):
+    """A: or-logic no longer swallows 0.0 as falsy."""
+    from vasp_cache.index import _extract_outcar
+    d = write_calc(tmp_path / "calc")
+    # monkeypatch outcar extract to return exactly 0.0
+    original = _extract_outcar
+    def fake_extract_outcar(path):
+        return {"final_energy": 0.0, "total_mag": None,
+                "electrostatic_potentials": None}
+    with patch("vasp_cache.index._extract_outcar", fake_extract_outcar):
+        with patch("vasp_cache.index._extract_vasprun",
+                   return_value={"final_energy": None, "converged_ionic": True,
+                                 "converged_electronic": True}):
+            key = put(d, root=cache_root)
+    assert key is not None
+    rows = query(root=cache_root)
+    assert rows[0]["final_energy"] == 0.0
+
+
+def test_normalize_lattice_rejects_zero_length_vector():
+    """B: zero-length lattice vector raises IdentityInputError."""
+
+    from vasp_cache.errors import IdentityInputError
+    from vasp_cache.index import normalize_lattice
+    with pytest.raises(IdentityInputError, match="degenerate"):
+        normalize_lattice({"lattice": {"matrix": [[0, 0, 0], [1, 0, 0], [0, 1, 0]]}})
+
+
+def test_fetch_rejects_existing_target(cache_root: Path, tmp_path: Path):
+    """C: fetch refuses to overwrite an existing target directory."""
+    d = write_calc(tmp_path / "calc")
+    key = put(d, root=cache_root)
+    dest = tmp_path / "already_exists"
+    dest.mkdir()
+    with pytest.raises(FileExistsError, match="existing directory"):
+        fetch(key, dest, root=cache_root)
+
+
+def test_fetch_cleans_up_on_reconstruction_failure(
+    cache_root: Path, tmp_path: Path, monkeypatch,
+):
+    """C: fetch cleans up temp dir when reconstruction fails."""
+    d = write_calc(tmp_path / "calc")
+    key = put(d, root=cache_root)
+    dest = tmp_path / "target"
+    parent = dest.parent
+    # Make _write_kpoints fail after BLOB files have been written
+    def failing_write_kpoints(path, kpts):
+        raise RuntimeError("simulated reconstruction failure")
+    with patch("vasp_cache.index._write_kpoints", failing_write_kpoints):
+        with pytest.raises(RuntimeError, match="simulated"):
+            fetch(key, dest, root=cache_root)
+    # Temp dir should have been cleaned up
+    leftovers = list(parent.glob(".fetch-*"))
+    assert len(leftovers) == 0, f"temp dir not cleaned: {leftovers}"
+    assert not dest.exists()
+
+
+def test_get_meta_by_source_path(cache_root: Path, tmp_path: Path):
+    """D3: get_meta finds entry by source_path."""
+    from vasp_cache.api import get_meta
+    d = write_calc(tmp_path / "calc")
+    key = put(d, root=cache_root)
+    sp = str(d.resolve())
+    # lookup by source_path
+    meta = get_meta(key=sp, root=cache_root)
+    assert meta is not None
+    assert meta["identity_key"] == key
+
+
+def test_upsert_updates_created_at_and_enforces_fk(
+    cache_root: Path, tmp_path: Path, monkeypatch,
+):
+    """8: UPSERT updates created_at; FK is enforced."""
+    d1 = write_calc(tmp_path / "calc1", incar="ENCUT = 520\nNSW = 0\n")
+    key = put(d1, root=cache_root)
+    conn1 = sqlite3.connect(str(cache_root / "index.sqlite"))
+    conn1.row_factory = sqlite3.Row
+    conn1.execute("PRAGMA foreign_keys = ON")
+    fk = conn1.execute("PRAGMA foreign_keys").fetchone()[0]
+    created1 = conn1.execute(
+        "SELECT created_at, source_path FROM entries WHERE identity_key = ?",
+        (key,),
+    ).fetchone()
+    old_created = created1["created_at"]
+    old_source = created1["source_path"]
+    conn1.close()
+    time.sleep(1.1)  # ensure datetime('now') resolution gap
+    d2 = write_calc(tmp_path / "calc2", incar="ENCUT = 520\nNSW = 0\n")
+    put(d2, root=cache_root, overwrite=True)
+    conn2 = sqlite3.connect(str(cache_root / "index.sqlite"))
+    conn2.row_factory = sqlite3.Row
+    conn2.execute("PRAGMA foreign_keys = ON")
+    created2 = conn2.execute(
+        "SELECT created_at, source_path FROM entries WHERE identity_key = ?",
+        (key,),
+    ).fetchone()
+    assert created2["created_at"] > old_created
+    assert created2["source_path"] != old_source  # updated, not the old one
+    # FK enforcement: inserting into discarded_candidates with bogus key must fail
+    with pytest.raises(sqlite3.IntegrityError):
+        conn2.execute(
+            "INSERT INTO discarded_candidates(identity_key, source_path, reason) "
+            "VALUES ('nonexistent', '/none', 'test')",
+        )
+    conn2.close()
