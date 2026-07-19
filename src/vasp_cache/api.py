@@ -1,329 +1,43 @@
-"""Public cache API: put / has / fetch / query (CAS + SQLite backend)."""
+"""Public API for the fresh formula–INCAR calculation index."""
 
 from __future__ import annotations
 
-import logging
-import re
-import time
 from pathlib import Path
-from typing import Any, Iterable, Literal
+import json
+from typing import Any, Iterable
 
-from vasp_cache import cas, meta
-from vasp_cache.logutil import ensure_logging
-from vasp_cache.mapping import content_hash as compute_content_hash
-from vasp_cache.mapping import load_mapping, mapping_digest
-from vasp_cache.errors import CacheConflictError, ProvenanceConflictError
-from vasp_cache.parse import MAX_LATTICE, Provenance, summarize_calc
-from vasp_cache.fingerprint import result_geometry_hash
-from vasp_cache.paths import cache_root
-
-logger = logging.getLogger(__name__)
-
-_OUTPUT_NAMES = ("OUTCAR", "CONTCAR", "vasprun.xml")
-_INPUT_NAMES = ("INCAR", "POSCAR", "KPOINTS")  # no POTCAR
-_PROVENANCE_VALUES = {"canonical", "sampled", "unknown"}
-_CONFLICT_VALUES = {"strict", "skip", "overwrite"}
-__all__ = [
-    "CacheConflictError",
-    "ProvenanceConflictError",
-    "Provenance",
-    "put",
-    "has",
-    "fetch",
-    "query",
-    "get_meta",
-    "list_entries",
-    "stats",
-]
+from vasp_cache import index
 
 
-def _detect_formula_task(src_dir: Path) -> tuple[str, str]:
-    name = src_dir.name
-    if "_mp-" in name:
-        formula = name.split("_mp-", 1)[0]
-        return formula, name
-    formula = "unknown"
-    for cand in (src_dir / "CONTCAR", src_dir / "POSCAR"):
-        if cand.is_file():
-            try:
-                from pymatgen.core.structure import Structure
-
-                formula = Structure.from_file(str(cand)).composition.reduced_formula
-                break
-            except Exception:
-                continue
-    return formula, name
+def put(directory: Path | str, *, root: Path | None = None) -> str | None:
+    return index.put(directory, root=root)
 
 
-def _outcar_usable(src_dir: Path) -> tuple[bool, float | None, bool]:
-    """Return (usable, energy, converged).
-
-    Reads only the tail (64 KB) of OUTCAR for bounded memory.
-    """
-    path = src_dir / "OUTCAR"
-    if not path.is_file():
-        alt = src_dir / "output" / "OUTCAR"
-        path = alt if alt.is_file() else path
-    if not path.is_file():
-        return False, None, False
-    tail_size = 65536
-    file_size = path.stat().st_size
-    offset = max(0, file_size - tail_size)
-    with open(path, "rb") as f:
-        f.seek(offset)
-        tail = f.read().decode("utf-8", errors="replace")
-    energies = re.findall(r"free\s+energy\s+TOTEN\s*=\s*([-\d.]+)", tail)
-    energy = float(energies[-1]) if energies else None
-    converged = "General timing and accounting" in tail
-    # Energy alone is not enough: unconverged runs are not cached.
-    usable = converged
-    return usable, energy, converged
-
-
-def put(
-    calc_dir: Path | str,
+def rebuild(
+    source_root: Path | str,
     *,
-    formula: str | None = None,
-    task_name: str | None = None,
-    store_inputs: bool = True,
-    include: Iterable[str] = (),
-    provenance: Provenance | None = None,
-    on_conflict: Literal["strict", "skip", "overwrite"] = "strict",
-) -> str | None:
-    ensure_logging()
-    calc_dir = Path(calc_dir)
-    if provenance is not None and provenance not in _PROVENANCE_VALUES:
-        raise ValueError(f"invalid provenance: {provenance}")
-    if on_conflict not in _CONFLICT_VALUES:
-        raise ValueError(f"invalid conflict mode: {on_conflict}")
-    try:
-        return _put_impl(
-            calc_dir,
-            formula=formula,
-            task_name=task_name,
-            store_inputs=store_inputs,
-            include=include,
-            provenance=provenance,
-            on_conflict=on_conflict,
-        )
-    except Exception:
-        logger.exception("put failed %s", calc_dir)
-        raise
+    root: Path | None = None,
+    exclude: Iterable[str] | None = None,
+) -> dict[str, int]:
+    return index.rebuild(source_root, root=root, exclude=exclude)
 
 
-def _put_impl(
-    calc_dir: Path,
-    *,
-    formula: str | None = None,
-    task_name: str | None = None,
-    store_inputs: bool = True,
-    include: Iterable[str] = (),
-    provenance: Provenance | None = None,
-    on_conflict: Literal["strict", "skip", "overwrite"] = "strict",
-) -> str | None:
-    usable, _, converged = _outcar_usable(calc_dir)
-    if not usable:
-        reason = "not_converged_or_missing_outcar"
-        logger.info("put skip %s: %s", calc_dir, reason)
-        return None
-
-    summary = summarize_calc(calc_dir)
-    if summary.get("converged") is False:
-        logger.info("put skip %s: summarize_not_converged", calc_dir)
-        return None
-
-    if MAX_LATTICE is not None and summary.get("max_abc", 0) > MAX_LATTICE:
-        logger.info(
-            "put skip %s: max_abc %.1f > MAX_LATTICE %.1f",
-            calc_dir,
-            summary["max_abc"],
-            MAX_LATTICE,
-        )
-        return None
-    ch = compute_content_hash(calc_dir)
-    f, tn = _detect_formula_task(calc_dir)
-    formula = formula or f
-    task_name = task_name or tn
-    root = cache_root()
-    incoming_provenance = provenance or summary.get("provenance", "unknown")
-    incoming_source = "explicit" if provenance is not None else "inferred"
-    resolved_provenance, resolved_source = meta.preflight_provenance(
-        root, ch, incoming_provenance, incoming_source
-    )
-    existing = meta.get_entry(root, ch)
-    if existing is not None:
-        if on_conflict == "skip":
-            logger.info("put skip %s: existing hash=%s", calc_dir, ch)
-            return ch
-        if on_conflict == "strict":
-            source_outcar = calc_dir / "OUTCAR"
-            existing_digest = (existing.get("objects") or {}).get("OUTCAR")
-            if not source_outcar.is_file() or not existing_digest:
-                raise CacheConflictError(
-                    f"cannot verify existing OUTCAR for content hash {ch}"
-                )
-            source_digest = cas.file_digest(source_outcar)
-            if source_digest != existing_digest:
-                raise CacheConflictError(
-                    f"content hash {ch} has a different OUTCAR payload"
-                )
-        else:
-            logger.warning("overwriting existing content hash %s", ch)
-
-    objects: dict[str, str] = {}
-    for name in _OUTPUT_NAMES:
-        src = calc_dir / name
-        if src.is_file():
-            objects[name] = cas.put_file(root, src)
-    if "CONTCAR" not in objects and (calc_dir / "POSCAR").is_file():
-        objects["CONTCAR"] = cas.put_file(root, calc_dir / "POSCAR")
-
-    if store_inputs:
-        for name in _INPUT_NAMES:
-            src = calc_dir / name
-            if src.is_file():
-                objects[name] = cas.put_file(root, src)
-
-    for name in include:
-        if name == "POTCAR":
-            continue
-        src = calc_dir / name
-        if src.is_file():
-            objects[name] = cas.put_file(root, src)
-
-    if "OUTCAR" not in objects:
-        logger.info("put skip %s: outcar_not_stored", calc_dir)
-        return None
-
-    m = load_mapping()
-    core_keys = {
-        "formula",
-        "task_name",
-        "total_energy",
-        "converged",
-        "bandgap",
-        "nsites",
-        "max_abc",
-        "tags",
-        "outcar_complete",
-        "electronic_converged",
-        "ionic_converged",
-        "nsw",
-        "ibrion",
-        "isif",
-        "provenance",
-    }
-    extra = {k: v for k, v in summary.items() if k not in core_keys}
-    result_hash = result_geometry_hash(calc_dir)
-    if result_hash is not None:
-        extra["result_geom_hash"] = result_hash
-    meta.upsert_entry(
-        root,
-        content_hash=ch,
-        objects=objects,
-        formula=formula,
-        task_name=task_name,
-        total_energy=summary.get("total_energy"),
-        converged=summary.get("converged"),
-        bandgap=summary.get("bandgap"),
-        nsites=summary.get("nsites"),
-        max_abc=summary.get("max_abc"),
-        tags=summary.get("tags"),
-        source_dir=str(calc_dir.resolve()),
-        profile_id=m.get("profile_id", "default"),
-        key_generation=m.get("key_generation"),
-        mapping_digest=mapping_digest(calc_dir, mapping=m),
-        cached_at=time.time(),
-        extra=extra or None,
-        provenance=resolved_provenance,
-        provenance_source=resolved_source,
-        outcar_complete=summary.get("outcar_complete"),
-        electronic_converged=summary.get("electronic_converged"),
-        ionic_converged=summary.get("ionic_converged"),
-        nsw=summary.get("nsw"),
-        ibrion=summary.get("ibrion"),
-        isif=summary.get("isif"),
-    )
-    logger.info("put ok %s hash=%s formula=%s", calc_dir, ch, formula)
-    return ch
+def has(directory: Path | str, *, root: Path | None = None) -> bool:
+    return index.has(directory, root=root)
 
 
-def has(input_dir: Path | str) -> bool:
-    ensure_logging()
-    input_dir = Path(input_dir)
-    ch = compute_content_hash(input_dir)
-    root = cache_root()
-    entry = meta.get_entry(root, ch)
-    if entry is None:
-        logger.info("has miss %s (no meta)", input_dir)
-        return False
-    out_id = (entry.get("objects") or {}).get("OUTCAR")
-    if not out_id or not cas.has_object(root, out_id):
-        logger.info("has miss %s (no OUTCAR object)", input_dir)
-        return False
-    logger.info("has hit %s", input_dir)
-    return True
-
-
-def fetch(input_dir: Path | str) -> bool:
-    ensure_logging()
-    input_dir = Path(input_dir)
-    ch = compute_content_hash(input_dir)
-    root = cache_root()
-    entry = meta.get_entry(root, ch)
-    if entry is None:
-        logger.info("fetch miss %s (no meta)", input_dir)
-        return False
-    objects = entry.get("objects") or {}
-    restored = False
-    for name in _OUTPUT_NAMES:
-        digest = objects.get(name)
-        if not digest or not cas.has_object(root, digest):
-            continue
-        cas.materialize(root, digest, input_dir / name)
-        if name == "OUTCAR":
-            restored = True
-    if restored:
-        logger.info("fetch ok %s", input_dir)
-    else:
-        logger.info("fetch miss %s (no OUTCAR restored)", input_dir)
-    return restored
+def fetch(identity_key: str, target_dir: Path | str,
+          *, root: Path | None = None) -> bool:
+    return index.fetch(identity_key, target_dir, root=root)
 
 
 def query(
     formula: str | None = None,
-    functional: str | None = None,
-    calc_type: str | None = None,
-    tags_contains: str | None = None,
-    bandgap_min: float | None = None,
-    lattice_max: float | None = None,
-    converged_only: bool = True,
-    provenance: meta.ProvenanceFilter = "canonical",
+    *,
+    root: Path | None = None,
     limit: int = 100,
 ) -> list[dict[str, Any]]:
-    """Semantic query over metadata fields."""
-    return meta.query_entries(
-        cache_root(),
-        formula=formula,
-        functional=functional,
-        tags=tags_contains,
-        calc_type=calc_type,
-        bandgap_min=bandgap_min,
-        lattice_max=lattice_max,
-        converged_only=converged_only,
-        provenance=provenance,
-        limit=limit,
-    )
-
-
-def list_entries(limit: int = 50) -> list[dict[str, Any]]:
-    """Most recently cached entries."""
-    return meta.list_recent(cache_root(), limit=limit)
-
-
-def stats() -> dict[str, Any]:
-    """Aggregate cache statistics."""
-    return meta.stats(cache_root())
+    return index.query(formula=formula, root=root, limit=limit)
 
 
 def get_meta(
@@ -332,27 +46,54 @@ def get_meta(
     content_hash: str | None = None,
     formula: str | None = None,
     key: str | None = None,
-    provenance: meta.ProvenanceFilter = "canonical",
+    root: Path | None = None,
 ) -> dict[str, Any] | None:
-    """Return metadata for a cached calculation, or None."""
-    root = cache_root()
     if input_dir is not None:
-        ch = compute_content_hash(Path(input_dir))
-        return meta.get_entry(root, ch)
-    if content_hash is not None:
-        return meta.get_entry(root, content_hash)
-    if formula is not None:
-        rows = meta.query_entries(
-            root,
-            formula=formula,
-            converged_only=False,
-            provenance=provenance,
-            limit=50,
+        try:
+            identity = index.identity_for_directory(input_dir)
+        except ValueError:
+            return None
+        rows = index.query(root=root, limit=1000)
+        return next(
+            (row for row in rows if row["identity_key"] == identity.key), None
         )
-        if key is None:
-            return rows[0] if rows else None
-        for r in rows:
-            if key in (r.get("content_hash"), r.get("task_name")):
-                return r
-        return None
-    return None
+    rows = index.query(formula=formula, root=root, limit=1000)
+    if content_hash is not None:
+        return next(
+            (row for row in rows if row["identity_key"] == content_hash), None)
+    if key is not None:
+        return next(
+            (row for row in rows
+             if key == row["identity_key"]
+             or key == row.get("source_path", "")),
+            None,
+        )
+    return rows[0] if rows else None
+
+
+def list_entries(*, root: Path | None = None, limit: int = 50) -> list[dict[str, Any]]:
+    return index.query(root=root, limit=limit)
+
+
+def stats(*, root: Path | None = None) -> dict[str, int | str]:
+    conn = index.connect(root)
+    try:
+        entries, formulas, backend = conn.execute(
+            "SELECT COUNT(*), COUNT(DISTINCT formula), "
+            "'sqlite-index' FROM entries"
+        ).fetchone()
+        total_size = conn.execute(
+            "SELECT COALESCE(SUM("
+            "LENGTH(outcar_blob) "
+            "+ LENGTH(COALESCE(vasprun_blob, '')) "
+            "+ LENGTH(COALESCE(contcar_blob, ''))"
+            "), 0) FROM entries"
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    return {
+        "entries": int(entries),
+        "total_blob_bytes": total_size,
+        "formulas": int(formulas),
+        "backend": str(backend),
+    }

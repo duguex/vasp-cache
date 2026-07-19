@@ -15,6 +15,16 @@ marked partial (`null`). An unbounded `health --scan-cas` run supports exact
 physical, reference, missing-reference, and orphan totals when completed; no
 full shared-cache audit result is claimed from the bounded evidence.
 
+First health pass implemented. The default report is a read-only, fast SQLite
+metadata-quality report, and `--scan-cas` is an explicit streaming CAS walk with
+progress and an optional object bound. The fast real-cache run observed 106,348
+metadata entries, generations 2/4, all rows with `provenance=unknown` and
+`provenance_source=legacy`, and 1,427 missing energies. A bounded 1,000-object
+CAS run observed 1,000 physical objects and 2,399,452,504 scanned bytes, and
+correctly marked reconciliation totals as partial (`null`). A full exact
+real-cache CAS audit has not been run, so full physical/reference/orphan counts
+and bytes remain open.
+
 The wide total-energy range remains a review flag, not a scientific validity
 judgment. No metadata or CAS repair/deletion is performed by this audit.
 

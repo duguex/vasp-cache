@@ -4,14 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vasp-cache"
-version = "0.2.0"
-description = "Black-box VASP calculation cache (CAS + SQLite backend)"
+version = "0.3.0"
+description = "Lightweight SQLite index for VASP calculations keyed by formula and INCAR"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 dependencies = [
-    "pyyaml>=6.0",
-    "emmet-core>=0.60",
     "pymatgen>=2023.0",
 ]
 
@@ -24,11 +22,11 @@ vasp-cache = "vasp_cache.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+vasp_cache = ["web/*.html", "web/*.js", "web/*.css"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
     "real_data: tests that read real VASP calculation directories (may need NFS)",
 ]
 
-[tool.setuptools.package-data]
-vasp_cache = ["data/*.yaml"]

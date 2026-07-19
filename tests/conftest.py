@@ -37,8 +37,8 @@ Gamma
 """
 
 MINIMAL_POTCAR = """\
-  PAW_PBE Si 05Jan2001
-   4.00000000000000
+   TITEL  = PAW_PBE Si 05Jan2001
+  4.00000000000000
 """
 
 
@@ -62,6 +62,7 @@ def write_minimal_outcar(d: Path, energy: str = "-5.0", converged: bool = True) 
 def write_complete_calc(d: Path, energy: str = "-5.0") -> Path:
     write_minimal_inputs(d)
     write_minimal_outcar(d, energy=energy, converged=True)
+    (d / "vasprun.xml").write_text("<vasprun/>\n")
     return d
 
 
@@ -101,4 +102,5 @@ def write_large_lattice_calc(d: Path, energy: str = "-5.0") -> Path:
     (d / "KPOINTS").write_text(MINIMAL_KPOINTS)
     (d / "POTCAR").write_text(MINIMAL_POTCAR)
     write_minimal_outcar(d, energy=energy, converged=True)
+    (d / "vasprun.xml").write_text("<vasprun/>\n")
     return d
