@@ -1,5 +1,6 @@
 (SUPERSEDED by v3-layered-identity spec) # Fresh Formula–INCAR Index Implementation Plan
 
+> **This plan describes an intermediate design that pre-dates v3. The current v3 contract is in `docs/superpowers/specs/2026-07-18-v3-layered-identity.md`.**
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans. Steps use checkbox syntax.
 
 **Goal:** Replace the old cache architecture with a fresh SQLite filesystem index keyed by normalized INCAR plus POSCAR formula and rebuild it from the CsEuCl3 tree.

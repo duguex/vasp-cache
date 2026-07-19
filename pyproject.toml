@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "vasp-cache"
 version = "0.3.0"
-description = "Lightweight SQLite index for VASP calculations keyed by formula and INCAR"
+description = "Black-box VASP calculation cache — 5-layer identity, SQLite BLOB storage"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
