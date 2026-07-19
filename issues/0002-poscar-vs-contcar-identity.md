@@ -1,3 +1,5 @@
+(RESOLVED in v3 — body describes original v2 problem)
+
 # Define identity structure file: POSCAR vs CONTCAR
 
 **Date:** 2026-07-15  

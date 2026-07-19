@@ -1,3 +1,5 @@
+(RESOLVED in v3 — body describes original v2 problem)
+
 # Publish identity contract (policy doc)
 
 **Date:** 2026-07-15  

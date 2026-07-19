@@ -1,3 +1,5 @@
+(RESOLVED in v3 — all INCAR keys participate in 5-layer identity; body describes original v2 problem)
+
 # Audit INCAR keys for hard mapping
 
 **Date:** 2026-07-15  
