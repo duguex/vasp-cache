@@ -288,9 +288,44 @@ def _extract_vasprun(path: Path) -> dict[str, Any]:
 
 # --- schema ------------------------------------------------------------
 
-def _create_schema(conn: sqlite3.Connection) -> None:
-    conn.executescript(_SCHEMA)
-    conn.commit()
+_SCHEMA_VERSION = 1
+
+
+def _init_schema(conn: sqlite3.Connection) -> None:
+    """Ensure a compatible schema exists; create if fresh; upgrade v0→v3."""
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if version == _SCHEMA_VERSION:
+        return
+    if version > _SCHEMA_VERSION:
+        raise RuntimeError(
+            f"index.sqlite schema version {version} is newer than "
+            f"this vasp-cache (expects {_SCHEMA_VERSION}). "
+            f"Upgrade vasp-cache or delete the index and rebuild."
+        )
+    # version < _SCHEMA_VERSION (0 or intermediate)
+    exists = conn.execute(
+        "SELECT name FROM sqlite_master "
+        "WHERE type='table' AND name='entries'"
+    ).fetchone()
+    if exists is None:
+        # Fresh empty DB
+        conn.executescript(_SCHEMA)
+        conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
+        conn.commit()
+        return
+    # Existing DB with old version — check for v3 compatibility
+    if version == 0:
+        cols = {r[1] for r in conn.execute(
+            "PRAGMA table_info(entries)"
+        ).fetchall()}
+        if "identity_key" in cols and "lattice_json" in cols:
+            conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
+            return
+    raise RuntimeError(
+        "Incompatible index.sqlite schema. Expected a vasp-cache v3+ "
+        "SQLite database. Delete the index and rebuild with "
+        "'vasp-cache rebuild <source-directory>'."
+    )
 
 
 def connect(root: Path | None = None) -> sqlite3.Connection:
@@ -299,14 +334,8 @@ def connect(root: Path | None = None) -> sqlite3.Connection:
     conn = sqlite3.connect(str(db_path(root)))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
-    _create_schema_if_needed(conn)
+    _init_schema(conn)
     return conn
-
-
-def _create_schema_if_needed(conn: sqlite3.Connection) -> None:
-    # DDL uses IF NOT EXISTS — safe to call unconditionally
-    _create_schema(conn)
-
 _INSERT_SQL = """INSERT INTO entries (
      identity_key, formula, incar_json, structure_json,
      kpoints_json, potcar_json, lattice_json,
@@ -672,7 +701,7 @@ def rebuild(
     conn.row_factory = sqlite3.Row
     scanned = skipped = done = 0
     try:
-        _create_schema(conn)
+        _init_schema(conn)
         candidates = list(_iter_candidates(source_root, exclude=exclude))
         # sort by relative path for deterministic processing order
         candidates.sort(key=lambda d: str(d.relative_to(source_root)))

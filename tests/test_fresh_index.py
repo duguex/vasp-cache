@@ -519,3 +519,50 @@ def test_upsert_updates_created_at_and_enforces_fk(
             "VALUES ('nonexistent', '/none', 'test')",
         )
     conn2.close()
+
+
+
+# --- schema versioning tests -----------------------------------------------
+
+def test_fresh_db_gets_schema_version_1(cache_root: Path):
+    """Fresh index.sqlite gets user_version = 1."""
+    from vasp_cache.index import connect
+    conn = connect(root=cache_root)
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    assert version == 1
+    conn.close()
+
+
+def test_v0_compatible_db_upgrades_to_v1(cache_root: Path):
+    """v0 DB with current v3 columns auto-upgrades to version 1."""
+    db = cache_root / "index.sqlite"
+    # Build a full v3 schema, then reset user_version to 0
+    from vasp_cache.index import _SCHEMA, _SCHEMA_VERSION
+    conn = sqlite3.connect(str(db))
+    conn.executescript(_SCHEMA)
+    conn.execute("PRAGMA user_version = 0")
+    conn.commit()
+    conn.close()
+    # Reconnect — should upgrade, persisted across re-open
+    from vasp_cache.index import connect, _SCHEMA_VERSION as expected_ver
+    conn2 = connect(root=cache_root)
+    version = conn2.execute("PRAGMA user_version").fetchone()[0]
+    assert version == expected_ver
+    conn2.close()
+    # Re-open and verify persisted
+    conn3 = sqlite3.connect(str(db))
+    assert conn3.execute("PRAGMA user_version").fetchone()[0] == expected_ver
+    conn3.close()
+
+
+def test_incompatible_schema_raises_runtime_error(cache_root: Path):
+    """v0 DB without v3 sentinel columns raises RuntimeError."""
+    db = cache_root / "index.sqlite"
+    conn = sqlite3.connect(str(db))
+    conn.execute("PRAGMA user_version = 0")
+    conn.executescript("CREATE TABLE entries (old_column TEXT);")
+    conn.commit()
+    conn.close()
+    from vasp_cache.index import connect
+    with pytest.raises(RuntimeError, match="Incompatible"):
+        connect(root=cache_root)
