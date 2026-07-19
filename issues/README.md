@@ -8,7 +8,7 @@ Local trackers + GitHub: https://github.com/duguex/vasp-cache/issues
 
 | Local | GitHub | Title | How |
 |-------|--------|-------|-----|
-| 0002 | #3 | POSCAR vs CONTCAR identity | POSCAR in hash, CONTCAR as BLOB |
+| 0002 | #3 | POSCAR vs CONTCAR identity | formula+lattice from POSCAR in hash; CONTCAR as BLOB |
 | 0004 | #5 | INCAR hard-key audit | all INCAR keys normalized into identity |
 | 0015 | #16 | Identity contract policy doc | spec §1 + USER.md document 5 layers |
 

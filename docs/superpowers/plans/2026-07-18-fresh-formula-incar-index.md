@@ -1,4 +1,4 @@
-# Fresh Formula–INCAR Index Implementation Plan
+(SUPERSEDED by v3-layered-identity spec) # Fresh Formula–INCAR Index Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans. Steps use checkbox syntax.
 
