@@ -96,18 +96,26 @@ def db_path(root: Path | None = None) -> Path:
 _SCHEMA_VERSION = 1
 
 
+_REQUIRED_COLS = frozenset({
+    "identity_key", "formula", "incar_json", "structure_json",
+    "kpoints_json", "potcar_json", "lattice_json",
+    "final_energy", "total_mag", "electrostatic_potentials",
+    "final_structure_json", "n_ionic_steps",
+    "converged_ionic", "converged_electronic",
+    "outcar_blob", "vasprun_blob", "contcar_blob",
+    "source_path", "created_at",
+})
+
+
 def _init_schema(conn: sqlite3.Connection) -> None:
     """Ensure a compatible schema exists; create if fresh; upgrade v0->v3."""
     version = conn.execute("PRAGMA user_version").fetchone()[0]
-    if version == _SCHEMA_VERSION:
-        return
     if version > _SCHEMA_VERSION:
         raise RuntimeError(
             f"index.sqlite schema version {version} is newer than "
             f"this vasp-cache (expects {_SCHEMA_VERSION}). "
             f"Upgrade vasp-cache or delete the index and rebuild."
         )
-    # version < _SCHEMA_VERSION (0 or intermediate)
     exists = conn.execute(
         "SELECT name FROM sqlite_master "
         "WHERE type='table' AND name='entries'"
@@ -118,19 +126,21 @@ def _init_schema(conn: sqlite3.Connection) -> None:
         conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
         conn.commit()
         return
-    # Existing DB with old version — check for v3 compatibility
-    if version == 0:
-        cols = {r[1] for r in conn.execute(
-            "PRAGMA table_info(entries)"
-        ).fetchall()}
-        if "identity_key" in cols and "lattice_json" in cols:
-            conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
-            return
-    raise RuntimeError(
-        "Incompatible index.sqlite schema. Expected a vasp-cache v3+ "
-        "SQLite database. Delete the index and rebuild with "
-        "'vasp-cache rebuild <source-directory>'."
-    )
+    # Existing DB — verify column set regardless of version
+    cols = {r[1] for r in conn.execute(
+        "PRAGMA table_info(entries)"
+    ).fetchall()}
+    if not _REQUIRED_COLS <= cols:
+        raise RuntimeError(
+            "Incompatible index.sqlite schema. Expected a vasp-cache v3+ "
+            "SQLite database. Delete the index and rebuild with "
+            "'vasp-cache rebuild <source-directory>'."
+        )
+    if version == _SCHEMA_VERSION:
+        return
+    # version == 0 with compatible columns — upgrade
+    conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
+    conn.commit()
 
 
 def connect(root: Path | None = None) -> sqlite3.Connection:

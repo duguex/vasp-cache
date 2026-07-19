@@ -568,6 +568,48 @@ def test_incompatible_schema_raises_runtime_error(cache_root: Path):
         connect(root=cache_root)
 
 
+
+def test_v1_with_missing_columns_raises_runtime_error(cache_root: Path):
+    """v1 DB missing outcar_blob column raises RuntimeError."""
+    import sqlite3
+    db = cache_root / "index.sqlite"
+    conn = sqlite3.connect(str(db))
+    conn.executescript("""
+        CREATE TABLE entries (identity_key TEXT, formula TEXT, incar_json TEXT,
+                              structure_json TEXT, kpoints_json TEXT,
+                              potcar_json TEXT, lattice_json TEXT,
+                              final_energy REAL, total_mag REAL,
+                              electrostatic_potentials TEXT,
+                              final_structure_json TEXT, n_ionic_steps INTEGER,
+                              converged_ionic INTEGER, converged_electronic INTEGER,
+                              vasprun_blob BLOB, contcar_blob BLOB,
+                              source_path TEXT, created_at TEXT);
+    """)
+    conn.execute(f"PRAGMA user_version = 1")
+    conn.commit()
+    conn.close()
+    from vasp_cache.index import connect
+    with pytest.raises(RuntimeError, match="Incompatible"):
+        connect(root=cache_root)
+
+
+def test_v0_partial_columns_raises_runtime_error(cache_root: Path):
+    """v0 DB with identity_key but missing lattice_json raises."""
+    import sqlite3
+    db = cache_root / "index.sqlite"
+    conn = sqlite3.connect(str(db))
+    conn.execute("PRAGMA user_version = 0")
+    conn.executescript("""
+        CREATE TABLE entries (identity_key TEXT, formula TEXT,
+                              incar_json TEXT, structure_json TEXT,
+                              kpoints_json TEXT, potcar_json TEXT);
+    """)
+    conn.commit()
+    conn.close()
+    from vasp_cache.index import connect
+    with pytest.raises(RuntimeError, match="Incompatible"):
+        connect(root=cache_root)
+
 # --- #29 interface tests -------------------------------------------------
 
 def test_fetch_into_existing_restores_outputs_only(
