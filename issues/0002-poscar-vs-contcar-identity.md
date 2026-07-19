@@ -37,5 +37,4 @@ Recommend choosing with vasp-sop batch semantics (skip-before-submit vs restore-
 
 ## Related
 
-- `vasp_sop` batch cache_lookup before submit  
-- `issues/0001-crystallographic-standardization.md`
+- `vasp_sop` batch cache_lookup before submit

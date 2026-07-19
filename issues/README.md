@@ -4,13 +4,11 @@ Local trackers + GitHub: https://github.com/duguex/vasp-cache/issues
 
 ## v3 status (2026-07-19)
 
-After v3 rewrite (BLOB + structured extracts, single index.sqlite).
-
 ### RESOLVED — v3 addresses the concern
 
 | Local | GitHub | Title | How |
 |-------|--------|-------|-----|
-| 0002 | #3 | POSCAR vs CONTCAR identity | POSCAR in 5-layer hash, CONTCAR as BLOB |
+| 0002 | #3 | POSCAR vs CONTCAR identity | POSCAR in hash, CONTCAR as BLOB |
 | 0004 | #5 | INCAR hard-key audit | all INCAR keys normalized into identity |
 | 0015 | #16 | Identity contract policy doc | spec §1 + USER.md document 5 layers |
 
@@ -24,11 +22,16 @@ After v3 rewrite (BLOB + structured extracts, single index.sqlite).
 | 0021 | #22 | Sampled single-point policy | provenance concept removed |
 | 0022 | — | CAS integrity audit | CAS backend deleted |
 
+### CLOSED / NOT PLANNED
+
+| Local | GitHub | Title | Reason |
+|-------|--------|-------|--------|
+| 0001 | #2 | Niggli/origin standardization | Niggli inapplicable: supercell size = different DFT calc, defects lack periodicity. Lattice vector permutation handled by normalize_lattice(). |
+
 ### OPEN — v3 does not address
 
 | Local | GitHub | Title | Priority | Note |
 |-------|--------|-------|----------|------|
-| 0001 | #2 | Niggli/origin standardization | P0 | only `Structure.sort()`, no reduction |
 | 0003 | #4 | POTCAR fingerprint strength | P0 | TITEL species+XC+version parsed; missing regression test |
 | 0005 | #6 | Configurable geom_hash precision | P0 | lattice tolerance hardcoded (0.001Å/0.1°) |
 | 0007 | #8 | Full vasp-sop regression | P1 | not systematically tested |

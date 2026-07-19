@@ -32,4 +32,4 @@ Document collision bounds and recommended defaults.
 
 ## Related
 
-- `issues/0001-crystallographic-standardization.md`
+- `docs/superpowers/specs/2026-07-18-v3-layered-identity.md` (5-layer identity)

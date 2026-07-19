@@ -1,40 +1,23 @@
-# Structure standardization for hard key (Niggli / origin)
+# Structure standardization — NOT Niggli
 
 **Date:** 2026-07-15  
-**Severity:** Medium–High — scientific false negatives (duplicate compute)  
-**Component:** `fingerprint._structure_tag` / Mapping Profile `hard.structure`
+**Status:** closed (2026-07-19). Niggli reduction does NOT apply to this project.
 
-## Status
+## Why Niggli is not applicable
 
-Open. Current default: `geom_hash` of rounded lattice matrix + fractional sites (sorted). Atom **order** permutation is stable; crystallographic equivalence is **not**.
+1. **Supercell size matters.** A 2×2×2 supercell is a fundamentally different DFT calculation from a 1×1×1 primitive cell — different atom count, k-point mesh, computational cost. Niggli reduction would incorrectly identify them as "same calculation."
 
-## Problem
+2. **Defect systems break periodicity.** The project handles vacancy, interstitial, and substitution calculations. These systems lack full translational symmetry. Niggli reduction assumes perfect crystal periodicity and would produce meaningless results.
 
-The same physical crystal can yield different `content_hash` under:
+3. **VASP identity is about calculation equivalence, not crystal equivalence.** Two physicists studying the same crystal at different cell sizes are doing different calculations. The cache must not conflate them.
 
-- Origin translation of all atoms
-- Lattice vector reordering / equivalent cell settings
-- Orientation related by lattice automorphism / symmetry
+## What IS implemented
 
-Impact: unnecessary recompute (`has` miss), not typically wrong `fetch` (false positive).
-
-## Expected
-
-Optional (or default) standardization before hash, e.g.:
-
-1. Niggli (or standard primitive) reduction  
-2. Canonical origin choice  
-3. Then sort sites + hash  
-
-Configurable via Mapping Profile, with `key_generation` bump when enabled.
-
-## Acceptance
-
-- Documented equivalence classes  
-- Tests: translate structure by lattice vector → same hard hash when standardization on  
-- Re-ingest note when generation bumps  
+- **6-permutation lattice vector ordering.** Row permutations {a,b,c} → {b,c,a} etc. preserve the same key. This handles equivalent VASP POSCAR descriptions of the same cell without changing the cell itself.
+- **Structure.sort()** for deterministic atomic site ordering within the stored structure.
+- Structure coordinates are NOT part of the identity hash (intentionally excluded as coarse identity).
 
 ## Related
 
-- `issues/0002-poscar-vs-contcar-identity.md`  
-- gen2 geom_hash fix (commit `1b05b1c`)
+- Issue #23: 5-layer identity (structure excluded from hash)
+- Lattice normalization: `normalize_lattice()` in index.py
