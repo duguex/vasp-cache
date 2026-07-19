@@ -33,7 +33,7 @@ Local trackers + GitHub: https://github.com/duguex/vasp-cache/issues
 | Local | GitHub | Title | Priority | Note |
 |-------|--------|-------|----------|------|
 | 0003 | #4 | POTCAR fingerprint strength | P0 | TITEL species+XC+version parsed; missing regression test |
-| 0005 | #6 | Configurable geom_hash precision | P0 | lattice tolerance hardcoded (0.001Å/0.1°) |
+| 0005 | #6 | Configurable geom_hash precision | P0 | lattice rounding precision hardcoded (0.001Å/0.1°) |
 | 0007 | #8 | Full vasp-sop regression | P1 | not systematically tested |
 | 0009 | #10 | Incremental ingest ops | P1 | rebuild only, no incremental put |
 | 0010 | #11 | Concurrent put safety | P1 | BEGIN IMMEDIATE added; WAL/busy-timeout pending |

@@ -6,7 +6,7 @@ v3 core architecture is sound. Remaining gaps:
 
 ~~Structure coordinates were included in the identity hash, causing false
 misses from coordinate noise.~~ Fixed: 5-layer identity (formula, incar,
-kpoints, potcar, lattice). Structure not hashed. Lattice tolerance 0.001 Å / 0.1°.
+kpoints, potcar, lattice). Structure not hashed. Lattice rounding 0.001 Å / 0.1°.
 
 ## Engineering
 
