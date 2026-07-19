@@ -3,16 +3,16 @@
 > **This plan describes an intermediate design that pre-dates v3. The current v3 contract is in `docs/superpowers/specs/2026-07-18-v3-layered-identity.md`.**
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans. Steps use checkbox syntax.
 
-**Goal:** Replace the old cache architecture with a fresh SQLite filesystem index keyed by normalized INCAR plus POSCAR formula and rebuild it from the CsEuCl3 tree.
+**Historical / not current.** Goal: Replace the old cache architecture with a fresh SQLite filesystem index keyed by normalized INCAR plus POSCAR formula and rebuild it from the CsEuCl3 tree.
 
-**Architecture:** Add one small identity/index layer with deterministic INCAR normalization and POSCAR formula extraction. Store grouped identities and source/output paths in a new SQLite database; public API and CLI call this layer directly. Delete obsolete provenance, migration, CAS, dashboard, and inspection surfaces rather than preserving compatibility shims.
+**Architecture (historical):** Add one small identity/index layer with deterministic INCAR normalization and POSCAR formula extraction. Store grouped identities and source/output paths in a new SQLite database; public API and CLI call this layer directly. Delete obsolete provenance, migration, CAS, dashboard, and inspection surfaces rather than preserving compatibility shims.
 
 **Tech Stack:** Python 3.10+, SQLite, pymatgen POSCAR parsing, argparse, pytest.
 
 ## Global Constraints
 
-- Identity is exactly normalized INCAR plus POSCAR reduced formula.
-- Scanner requires POSCAR, INCAR, and a parseable formula; VASP outputs are optional for indexing.
+- Historical: v2 identity was formula+INCAR; v3 uses 5-layer normalized INCAR plus POSCAR reduced formula.
+- Historical: Scanner required POSCAR, INCAR, and a parseable formula; VASP outputs are optional for indexing.
 - Rebuild starts from a fresh database and does not migrate old metadata.
 - Do not reuse the old provenance or CAS implementation.
 
