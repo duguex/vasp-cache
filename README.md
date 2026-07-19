@@ -2,7 +2,7 @@
 
 Black-box VASP calculation cache: **same inputs → restore outputs without re-running VASP**.
 
-Backend: single **SQLite** file (`index.sqlite`) with zlib-compressed BLOB storage. Identity is a 6-layer SHA-256 hash over formula, INCAR, structure, kpoints, POTCAR metadata, and lattice parameters.
+Backend: single **SQLite** file (`index.sqlite`) with zlib-compressed BLOB storage. Identity is a 5-layer SHA-256 hash: formula, INCAR, KPOINTS, POTCAR, lattice.
 
 ## Install
 

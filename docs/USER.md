@@ -79,14 +79,13 @@ These are extracted at `put()` time and available via SQL/API query:
 
 ## Identity
 
-Two calculations share an identity if these 6 layers match:
+Two calculations share an identity if these 5 layers match:
 
 1. **formula** — `Structure.from_file(POSCAR).composition.reduced_formula`
 2. **incar** — canonical INCAR dict (sorted keys, normalized whitespace)
-3. **structure** — `Structure.as_dict()` from POSCAR (sorted atomic order)
-4. **kpoints** — `Kpoints.as_dict()` (mesh, mode, shift)
-5. **potcar** — species list + XC functional
-6. **lattice** — {a, b, c, alpha, beta, gamma} with 0.01 Å / 0.1° tolerance
+3. **kpoints** — `Kpoints.as_dict()` (mesh, mode, shift)
+4. **potcar** — species list + XC functional (+ optional version date)
+5. **lattice** — {a, b, c, alpha, beta, gamma}, rounded to 0.001 Å / 0.1°
 
 ## Collision handling
 

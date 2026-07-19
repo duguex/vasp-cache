@@ -158,7 +158,7 @@ def normalize_potcar(path: Path | str) -> dict[str, Any]:
 
 
 def normalize_lattice(structure_dict: dict[str, Any]) -> dict[str, Any]:
-    """Canonical lattice parameters from a Structure dict."""
+    """Canonical lattice parameters, invariant under basis permutation."""
     lat = structure_dict.get("lattice", {})
     mat = lat.get("matrix", [[1, 0, 0], [0, 1, 0], [0, 0, 1]])
 
@@ -172,14 +172,24 @@ def normalize_lattice(structure_dict: dict[str, Any]) -> dict[str, Any]:
             max(-1.0, min(1.0, dot / (n1 * n2)))
         ))
 
-    return {
-        "a": round(_len(mat[0]), 3),
-        "b": round(_len(mat[1]), 3),
-        "c": round(_len(mat[2]), 3),
-        "alpha": round(_angle(mat[1], mat[2]), 1),
-        "beta":  round(_angle(mat[0], mat[2]), 1),
-        "gamma": round(_angle(mat[0], mat[1]), 1),
-    }
+    def _params(a, b, c):
+        return (
+            round(_len(a), 3), round(_len(b), 3), round(_len(c), 3),
+            round(_angle(b, c), 1),
+            round(_angle(a, c), 1),
+            round(_angle(a, b), 1),
+        )
+
+    # enumerate 6 permutations of lattice vectors, pick lexicographically smallest
+    from itertools import permutations
+    best = None
+    for (i, j, k) in permutations([0, 1, 2]):
+        params = _params(mat[i], mat[j], mat[k])
+        if best is None or params < best:
+            best = params
+
+    return {"a": best[0], "b": best[1], "c": best[2],
+            "alpha": best[3], "beta": best[4], "gamma": best[5]}
 
 
 def _structure_from_poscar(path: Path | str) -> tuple[str, str]:
@@ -209,7 +219,7 @@ def identity_for_directory(directory: Path | str) -> Identity:
     potcar = normalize_potcar(directory / "POTCAR")
     lattice = normalize_lattice(json.loads(structure_json))
     payload = json.dumps(
-        {"formula": formula, "incar": incar, "structure": structure_json,
+        {"formula": formula, "incar": incar,
          "kpoints": kpoints, "potcar": potcar, "lattice": lattice},
         ensure_ascii=True, sort_keys=True, separators=(",", ":"),
     ).encode("utf-8")

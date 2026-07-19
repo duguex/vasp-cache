@@ -29,25 +29,70 @@ def test_normalize_incar_sorts_keys_and_collapses_value_whitespace(
     assert normalize_incar(path) == {"ENCUT": "520", "SIGMA": "0.1 0.2"}
 
 
-def test_identity_includes_structure(tmp_path: Path):
-    write_calc(tmp_path / "first", "ENCUT=520\nNSW=0\n")
-    write_calc(tmp_path / "second", "ENCUT=520\nNSW=0\n")
-    first_id = identity_for_directory(tmp_path / "first")
-    second_id = identity_for_directory(tmp_path / "second")
-    assert first_id.key == second_id.key
-    assert first_id.structure_json == second_id.structure_json
+def test_identity_perturbation_keeps_key(tmp_path: Path):
+    """Coordinate perturbation within same formula+lattice → same key."""
+    write_calc(tmp_path / "a", "ENCUT=520\n")
+    write_calc(tmp_path / "b", "ENCUT=520\n")
+    # b has different atomic position
+    (tmp_path / "b" / "POSCAR").write_text(
+        "Si\n1.0\n5.43 0 0\n0 5.43 0\n0 0 5.43\nSi\n2\nDirect\n"
+        "0 0 0\n0.30 0.30 0.30\n")
+    assert identity_for_directory(tmp_path / "a").key == \
+        identity_for_directory(tmp_path / "b").key
 
 
-def test_different_poscar_gives_different_identity(tmp_path: Path):
-    write_calc(tmp_path / "first", "ENCUT=520\nNSW=0\n")
-    write_calc(tmp_path / "second", "ENCUT=520\nNSW=0\n")
-    (tmp_path / "second" / "POSCAR").write_text(
+def test_different_formula_changes_key(tmp_path: Path):
+    write_calc(tmp_path / "a", "ENCUT=520\n")
+    write_calc(tmp_path / "b", "ENCUT=520\n")
+    (tmp_path / "b" / "POSCAR").write_text(
         "GaAs\n1.0\n5.65 0 0\n0 5.65 0\n0 0 5.65\n"
         "Ga As\n1 1\nDirect\n0 0 0\n0.25 0.25 0.25\n")
-    assert (
-        identity_for_directory(tmp_path / "first").key
-        != identity_for_directory(tmp_path / "second").key
-    )
+    assert identity_for_directory(tmp_path / "a").key != \
+        identity_for_directory(tmp_path / "b").key
+
+
+def test_different_lattice_changes_key(tmp_path: Path):
+    write_calc(tmp_path / "a", "ENCUT=520\n")
+    write_calc(tmp_path / "b", "ENCUT=520\n")
+    (tmp_path / "b" / "POSCAR").write_text(
+        "Si\n1.0\n6.0 0 0\n0 6.0 0\n0 0 6.0\nSi\n2\nDirect\n"
+        "0 0 0\n0.25 0.25 0.25\n")
+    assert identity_for_directory(tmp_path / "a").key != \
+        identity_for_directory(tmp_path / "b").key
+
+
+def test_different_incar_changes_key(tmp_path: Path):
+    write_calc(tmp_path / "a", "ENCUT=520\n")
+    write_calc(tmp_path / "b", "ENCUT=400\n")
+    assert identity_for_directory(tmp_path / "a").key != \
+        identity_for_directory(tmp_path / "b").key
+
+
+def test_lattice_permutation_keeps_key(tmp_path: Path):
+    """Swapping lattice vectors should produce the same key."""
+    import shutil as _sh
+    write_calc(tmp_path / "a", "ENCUT=520\n")
+    (tmp_path / "a" / "POSCAR").write_text(
+        "Si\n1.0\n3.84 0 0\n0 3.84 0\n0 0 3.84\nSi\n2\nDirect\n"
+        "0 0 0\n0.25 0.25 0.25\n")
+    perms = [
+        "3.84 0 0\n0 3.84 0\n0 0 3.84",
+        "0 3.84 0\n0 0 3.84\n3.84 0 0",
+        "0 0 3.84\n3.84 0 0\n0 3.84 0",
+    ]
+    key_a = identity_for_directory(tmp_path / "a").key
+    for i, rows in enumerate(perms):
+        b = tmp_path / f"perm_{i}"
+        b.mkdir()
+        for f in ("INCAR","KPOINTS","POTCAR"):
+            _sh.copy(tmp_path / "a" / f, b / f)
+        (b / "POSCAR").write_text(
+            f"Si\n1.0\n{rows}\nSi\n2\nDirect\n"
+            "0 0 0\n0.25 0.25 0.25\n")
+        for f in ("OUTCAR","CONTCAR","vasprun.xml"):
+            (b / f).write_bytes(b"fake")
+        assert key_a == identity_for_directory(b).key, \
+            f"perm {i} differs"
 
 
 def test_rebuild_groups_duplicate_identity_and_skips_invalid(

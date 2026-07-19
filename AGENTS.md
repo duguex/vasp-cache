@@ -4,7 +4,7 @@
 
 vasp-cache is a black-box VASP calculation cache. Same inputs → restore outputs
 without re-running VASP. Single SQLite file (`index.sqlite`) with zlib-compressed
-BLOBs. 6-layer SHA-256 identity (formula, incar, structure, kpoints, potcar, lattice).
+BLOBs. 5-layer SHA-256 identity (formula, incar, kpoints, potcar, lattice).
 
 ## Architecture & Data Flow
 
@@ -15,7 +15,7 @@ CLI (argparse)  →  api.py (public facade)  →  index.py (SQLite engine)
                 (re-exports)
 
 Data flow:
-  put(dir) → identity_for_directory(dir) → 6-layer hash
+  put(dir) → identity_for_directory(dir) → 5-layer hash
            → pymatgen Outcar/Vasprun extraction → structured columns
            → read_bytes + zlib.compress → BLOB columns
            → should_replace() collision check → INSERT OR REPLACE or discard

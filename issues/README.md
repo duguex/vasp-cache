@@ -10,9 +10,9 @@ After v3 rewrite (BLOB + structured extracts, single index.sqlite).
 
 | Local | GitHub | Title | How |
 |-------|--------|-------|-----|
-| 0002 | #3 | POSCAR vs CONTCAR identity | POSCAR in 6-layer hash, CONTCAR as BLOB |
+| 0002 | #3 | POSCAR vs CONTCAR identity | POSCAR in 5-layer hash, CONTCAR as BLOB |
 | 0004 | #5 | INCAR hard-key audit | all INCAR keys normalized into identity |
-| 0015 | #16 | Identity contract policy doc | spec §1 + USER.md document 6 layers |
+| 0015 | #16 | Identity contract policy doc | spec §1 + USER.md document 5 layers |
 
 ### STALE — references deleted modules/features
 

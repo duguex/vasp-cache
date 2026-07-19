@@ -8,7 +8,7 @@ Design spec: **`docs/superpowers/specs/2026-07-18-v3-layered-identity.md`**
 |------|--------|
 | Backend | SQLite (index.sqlite) |
 | Primary I/O | `put(dir)` → `fetch(key, dir)` |
-| Key | 6-layer SHA-256 (formula, incar, structure, kpoints, potcar, lattice) |
+| Key | 5-layer SHA-256 (formula, incar, kpoints, potcar, lattice) |
 | Payload | Zlib-compressed BLOBs (OUTCAR, vasprun, CONTCAR) |
 | Structured extracts | Energy, magnetism, potentials, convergence |
 | Collision | Converged > unconverged; audit table |
