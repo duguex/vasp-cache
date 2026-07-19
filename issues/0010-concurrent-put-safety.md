@@ -1,3 +1,5 @@
+(v2 issue — written for signac/CAS/mapping architecture; see issues/README.md for v3 status)
+
 # Concurrent multi-process put safety
 
 **Date:** 2026-07-15  

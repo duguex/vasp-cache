@@ -1,3 +1,5 @@
+(v2 issue — references deleted modules/features; see issues/README.md for v3 status)
+
 # Classify and guard unprovenanced sampled single-point calculations
 
 **Date:** 2026-07-16  

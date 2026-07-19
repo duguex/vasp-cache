@@ -1,3 +1,5 @@
+(v2 issue — written for signac/CAS/mapping architecture; see issues/README.md for v3 status)
+
 # put conflict policy when key matches but value differs
 
 **Date:** 2026-07-15  

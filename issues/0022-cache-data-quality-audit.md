@@ -1,3 +1,5 @@
+(v2 issue — references deleted modules/features; see issues/README.md for v3 status)
+
 # Cache data-quality audit and CAS integrity report
 
 **Date:** 2026-07-17  

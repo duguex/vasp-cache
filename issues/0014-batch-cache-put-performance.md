@@ -1,3 +1,5 @@
+(v2 issue — written for signac/CAS/mapping architecture; see issues/README.md for v3 status)
+
 # Batch path: cache put must not block advance
 
 **Date:** 2026-07-15  

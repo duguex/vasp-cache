@@ -1,3 +1,5 @@
+(v2 issue — references deleted modules/features; see issues/README.md for v3 status)
+
 # Cleanup legacy ~/.vasp_sop meta.json / blobs.json
 
 **Date:** 2026-07-15  

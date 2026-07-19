@@ -1,3 +1,5 @@
+(v2 issue — references deleted modules/features; see issues/README.md for v3 status)
+
 # Push vasp-cache/vasp-sop and standardize install path
 
 **Date:** 2026-07-15  

@@ -1,3 +1,5 @@
+(v2 issue — references deleted modules/features; see issues/README.md for v3 status)
+
 # Explicitly document: no auto-migrate from JSONStore
 
 **Date:** 2026-07-15  
