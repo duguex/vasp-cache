@@ -21,7 +21,7 @@ from vasp_cache.paths import cache_root
 _DB_NAME = "index.sqlite"
 
 _SCHEMA = """
-CREATE TABLE entries (
+CREATE TABLE IF NOT EXISTS entries (
     identity_key   TEXT PRIMARY KEY,
     formula        TEXT NOT NULL,
     incar_json     TEXT NOT NULL,
@@ -46,7 +46,7 @@ CREATE TABLE entries (
     source_path TEXT
 );
 
-CREATE TABLE discarded_candidates (
+CREATE TABLE IF NOT EXISTS discarded_candidates (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     identity_key TEXT NOT NULL,
     source_path  TEXT NOT NULL,
@@ -58,9 +58,9 @@ CREATE TABLE discarded_candidates (
     FOREIGN KEY (identity_key) REFERENCES entries(identity_key)
 );
 
-CREATE INDEX entries_formula ON entries(formula);
-CREATE INDEX entries_energy ON entries(final_energy);
-CREATE INDEX discarded_identity ON discarded_candidates(identity_key);
+CREATE INDEX IF NOT EXISTS entries_formula ON entries(formula);
+CREATE INDEX IF NOT EXISTS entries_energy ON entries(final_energy);
+CREATE INDEX IF NOT EXISTS discarded_identity ON discarded_candidates(identity_key);
 """
 
 _REQUIRED_FILES = ("POSCAR", "INCAR", "KPOINTS", "POTCAR",
@@ -285,12 +285,8 @@ def connect(root: Path | None = None) -> sqlite3.Connection:
 
 
 def _create_schema_if_needed(conn: sqlite3.Connection) -> None:
-    exists = conn.execute(
-        "SELECT 1 FROM sqlite_master "
-        "WHERE type='table' AND name='entries'"
-    ).fetchone()
-    if exists is None:
-        _create_schema(conn)
+    # DDL uses IF NOT EXISTS — safe to call unconditionally
+    _create_schema(conn)
 
 
 def close_all() -> None:
@@ -354,6 +350,7 @@ def _record_discard(
 
 def _put_into_conn(
     conn: sqlite3.Connection, identity: Identity, directory: Path,
+    *, overwrite: bool = False,
 ) -> None:
     source = str(directory.resolve())
     outcar_bytes = (directory / "OUTCAR").read_bytes()
@@ -371,13 +368,14 @@ def _put_into_conn(
     conv_ionic = vasprun_extract.get("converged_ionic")
     conv_electronic = vasprun_extract.get("converged_electronic")
 
-    replace, reason = _should_replace(conn, identity.key, conv_ionic)
-    if not replace:
-        _record_discard(
-            conn, identity.key, source, reason,
-            conv_ionic, conv_electronic, final_energy,
-        )
-        return
+    if not overwrite:
+        replace, reason = _should_replace(conn, identity.key, conv_ionic)
+        if not replace:
+            _record_discard(
+                conn, identity.key, source, reason,
+                conv_ionic, conv_electronic, final_energy,
+            )
+            return
 
     # if replacing an existing entry, record the old one as discarded
     old = conn.execute(
@@ -387,7 +385,8 @@ def _put_into_conn(
     ).fetchone()
     if old is not None:
         _record_discard(
-            conn, identity.key, old["source_path"], "replaced",
+            conn, identity.key, old["source_path"],
+            "overwritten" if overwrite else "replaced",
             old["converged_ionic"], old["converged_electronic"],
             old["final_energy"],
         )
@@ -415,7 +414,8 @@ def _put_into_conn(
     ))
 
 
-def put(directory: Path | str, root: Path | None = None) -> str | None:
+def put(directory: Path | str, root: Path | None = None,
+        *, overwrite: bool = False) -> str | None:
     directory = Path(directory)
     if any(not (directory / f).is_file() for f in _REQUIRED_FILES):
         return None
@@ -425,8 +425,12 @@ def put(directory: Path | str, root: Path | None = None) -> str | None:
         return None
     conn = connect(root)
     try:
-        _put_into_conn(conn, identity, directory)
+        conn.execute("BEGIN IMMEDIATE")
+        _put_into_conn(conn, identity, directory, overwrite=overwrite)
         conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
     return identity.key

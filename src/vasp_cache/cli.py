@@ -26,6 +26,8 @@ def main(argv: list[str] | None = None) -> int:
 
     put = sub.add_parser("put", help="index one calculation directory")
     put.add_argument("directory", type=Path)
+    put.add_argument("--overwrite", action="store_true",
+                     help="force replace even if existing entry is equal quality")
 
     has = sub.add_parser("has", help="check an exact identity")
     has.add_argument("directory", type=Path)
@@ -55,7 +57,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         return 0
     if args.command == "put":
-        key = api.put(args.directory, root=root)
+        key = api.put(args.directory, root=root, overwrite=args.overwrite)
         if key is None:
             print("skip: invalid calculation inputs", file=sys.stderr)
             return 1

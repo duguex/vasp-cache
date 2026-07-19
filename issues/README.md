@@ -20,7 +20,7 @@ After v3 rewrite (BLOB + structured extracts, single index.sqlite).
 |-------|--------|-------|--------|
 | 0006 | #7 | Push + install standardization | ops-level, not v3-specific |
 | 0008 | #9 | Legacy JSONStore cleanup | done |
-| 0019 | #20 | JSONStore auto-migrate doc | N/A |
+| 0019 | #20 | JSONStore auto-migrate doc | obsolete: JSONStore removed in v3 |
 | 0021 | #22 | Sampled single-point policy | provenance concept removed |
 | 0022 | — | CAS integrity audit | CAS backend deleted |
 
@@ -33,7 +33,7 @@ After v3 rewrite (BLOB + structured extracts, single index.sqlite).
 | 0005 | #6 | Configurable geom_hash precision | P0 | lattice tolerance hardcoded (0.001Å/0.1°) |
 | 0007 | #8 | Full vasp-sop regression | P1 | not systematically tested |
 | 0009 | #10 | Incremental ingest ops | P1 | rebuild only, no incremental put |
-| 0010 | #11 | Concurrent put safety | P1 | no explicit WAL/busy-timeout config |
+| 0010 | #11 | Concurrent put safety | P1 | BEGIN IMMEDIATE added; WAL/busy-timeout pending |
 | 0011 | #12 | Soft similarity search | P2 | not implemented |
 | 0012 | #13 | Optional large file archival | P2 | not implemented |
 | 0013 | #14 | CI with real data | P2 | not configured |

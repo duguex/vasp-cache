@@ -9,8 +9,9 @@ from typing import Any, Iterable
 from vasp_cache import index
 
 
-def put(directory: Path | str, *, root: Path | None = None) -> str | None:
-    return index.put(directory, root=root)
+def put(directory: Path | str, *, root: Path | None = None,
+        overwrite: bool = False) -> str | None:
+    return index.put(directory, root=root, overwrite=overwrite)
 
 
 def rebuild(

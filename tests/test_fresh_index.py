@@ -242,6 +242,38 @@ def test_rebuild_tiebreak_by_relative_path(
     assert "bb" in d["source_path"]
     assert d["reason"] == "existing_kept"
     conn.close()
+
+
+def test_concurrent_put_does_not_corrupt(cache_root: Path, tmp_path: Path):
+    """Concurrent put() from multiple processes must not corrupt the DB."""
+    import multiprocessing
+    import sqlite3 as _sql
+
+    for i in range(8):
+        write_calc(tmp_path / f"calc_{i}")
+
+    args = [(str(cache_root), str(tmp_path / f"calc_{i}")) for i in range(8)]
+    with multiprocessing.Pool(4) as pool:
+        results = pool.starmap(_concurrent_worker, args)
+    assert all(r for r in results), f"some puts failed: {results}"
+    assert len(query(root=cache_root)) == 1
+    conn = _sql.connect(str(cache_root / "index.sqlite"))
+    integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
+    assert integrity == "ok"
+    conn.close()
+
+
+def _concurrent_worker(cache_root: str, calc_dir: str) -> bool:
+    """Module-level worker for multiprocessing."""
+    import vasp_cache.index as _ix
+    _ix._extract_vasprun = lambda p: {
+        "converged_ionic": 1, "converged_electronic": 1,
+        "n_ionic_steps": 1, "final_structure_json": "{}",
+        "final_energy": -5.0}
+    from vasp_cache.index import put
+    key = put(Path(calc_dir), root=Path(cache_root))
+    return key is not None
+
 def test_fetch_unknown_key_returns_false(cache_root: Path, tmp_path: Path):
     assert fetch("deadbeef", tmp_path / "gone", root=cache_root) is False
 
@@ -277,6 +309,45 @@ def test_rebuild_excludes_matched_directories(
     report = rebuild(tmp_path, root=cache_root, exclude=["*backup*"])
     assert report["done"] == 1
 
+
+def test_put_overwrite_replaces_existing(cache_root: Path, tmp_path: Path, monkeypatch):
+    """overwrite=True replaces existing entry regardless of convergence."""
+    import sqlite3 as _sql
+
+    monkeypatch.setattr(
+        "vasp_cache.index._extract_vasprun",
+        lambda p: {"converged_ionic": 1, "converged_electronic": 1,
+                   "n_ionic_steps": 1, "final_structure_json": "{}",
+                   "final_energy": -5.0})
+
+    a = tmp_path / "a"
+    write_calc(a)
+    k1 = put(a, root=cache_root)
+    assert k1 is not None
+
+    # second put without overwrite is discarded
+    b = tmp_path / "bb"
+    write_calc(b)
+    k2 = put(b, root=cache_root)
+    assert k2 == k1  # same key, not replaced
+
+    # third put with overwrite=True forces replacement
+    k3 = put(b, root=cache_root, overwrite=True)
+    assert k3 == k1
+    entry = query(root=cache_root)[0]
+    assert entry["converged_ionic"] == 1
+    assert "bb" in entry["source_path"], f"expected bb, got {entry['source_path']}"
+    # audit shows: existing_kept + overwritten
+    conn = _sql.connect(str(cache_root / "index.sqlite"))
+    conn.row_factory = _sql.Row
+    disc = conn.execute(
+        "SELECT reason FROM discarded_candidates ORDER BY id"
+    ).fetchall()
+    reasons = [d["reason"] for d in disc]
+    assert "existing_kept" in reasons
+    assert "overwritten" in reasons
+    assert len(reasons) == 2
+    conn.close()
 
 def test_stats_uses_direct_sql(cache_root: Path, tmp_path: Path):
     from vasp_cache.api import stats
