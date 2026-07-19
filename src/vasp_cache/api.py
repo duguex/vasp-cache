@@ -28,8 +28,9 @@ def has(directory: Path | str, *, root: Path | None = None) -> bool:
 
 
 def fetch(identity_key: str, target_dir: Path | str,
-          *, root: Path | None = None) -> bool:
-    return index.fetch(identity_key, target_dir, root=root)
+          *, root: Path | None = None, into_existing: bool = False) -> bool:
+    return index.fetch(identity_key, target_dir, root=root,
+                       into_existing=into_existing)
 
 
 def query(
@@ -37,8 +38,10 @@ def query(
     *,
     root: Path | None = None,
     limit: int = 100,
+    converged_only: bool = False,
 ) -> list[dict[str, Any]]:
-    return index.query(formula=formula, root=root, limit=limit)
+    return index.query(formula=formula, root=root, limit=limit,
+                       converged_only=converged_only)
 
 
 def get_meta(

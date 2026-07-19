@@ -18,7 +18,7 @@ Data flow:
   put(dir) → identity_for_directory(dir) → 5-layer hash
            → pymatgen Outcar/Vasprun extraction → structured columns
            → read_bytes + zlib.compress → BLOB columns
-           → should_replace() collision check → INSERT OR REPLACE or discard
+           → should_replace() collision check → INSERT ON CONFLICT DO UPDATE or discard
 
   fetch(key, dir) → SELECT BLOBs + JSON columns
                   → zlib.decompress → OUTCAR/vasprun/CONTCAR byte-identical
@@ -77,7 +77,7 @@ python -m build --wheel          # → dist/vasp_cache-0.3.0-py3-none-any.whl
 | File | Role |
 |------|------|
 | `pyproject.toml` | Build (setuptools), deps (pymatgen≥2023.0), entry point `vasp-cache`, v0.3.0 |
-| `src/vasp_cache/__init__.py` | Re-exports: put, has, fetch, query, rebuild, stats, get_meta, list_entries, IdentityInputError, override_cache_root. Does NOT export `identity_for_directory` (import from `vasp_cache.index`) |
+| `src/vasp_cache/__init__.py` | Re-exports: put, has, fetch, query, rebuild, stats, get_meta, list_entries, IdentityInputError, override_cache_root, Identity, identity_for_directory |
 | `src/vasp_cache/index.py` | Core engine: schema, identity normalizers, put/fetch/rebuild, collision, extraction |
 | `src/vasp_cache/cli.py` | CLI: `vasp-cache {rebuild,put,has,fetch,query,status}` |
 | `tests/conftest.py` | Shared fixtures: `cache_root`, `write_minimal_inputs`, `write_complete_calc` |

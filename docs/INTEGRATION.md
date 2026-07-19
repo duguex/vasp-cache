@@ -27,8 +27,7 @@ vasp-cache --root /shared/cache put /path/to/finished_calc
 ### Before VASP starts (check + fetch)
 
 ```python
-from vasp_cache import has, fetch
-from vasp_cache.index import identity_for_directory
+from vasp_cache import has, fetch, identity_for_directory
 
 ROOT = "/shared/cache"
 calc_dir = "/path/to/planned_calc"
@@ -39,7 +38,7 @@ except Exception:
     ident = None
 
 if ident and has(calc_dir, root=ROOT):
-    fetch(ident.key, calc_dir, root=ROOT)
+    fetch(ident.key, calc_dir, root=ROOT, into_existing=True)
     # outputs restored — skip VASP, proceed to downstream analysis
 else:
     submit_vasp_job(calc_dir)

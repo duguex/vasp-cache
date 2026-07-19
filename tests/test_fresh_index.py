@@ -566,3 +566,85 @@ def test_incompatible_schema_raises_runtime_error(cache_root: Path):
     from vasp_cache.index import connect
     with pytest.raises(RuntimeError, match="Incompatible"):
         connect(root=cache_root)
+
+
+# --- #29 interface tests -------------------------------------------------
+
+def test_fetch_into_existing_restores_outputs_only(
+    cache_root: Path, tmp_path: Path,
+):
+    """into_existing=True writes only OUTCAR/vasprun/CONTCAR, skips existing."""
+    calc = write_calc(tmp_path / "calc")
+    key = put(calc, root=cache_root)
+    # create a directory with pre-existing input files
+    existing = tmp_path / "existing"
+    existing.mkdir()
+    (existing / "POSCAR").write_text("dummy")
+    (existing / "INCAR").write_text("dummy")
+    (existing / "KPOINTS").write_text("dummy")
+    (existing / "POTCAR").write_text("dummy")
+    (existing / "OUTCAR").write_text("old outcar")
+    import vasp_cache.api
+    result = vasp_cache.api.fetch(key, existing, root=cache_root,
+                                   into_existing=True)
+    assert result is True
+    # existing OUTCAR skipped (into_existing skips extant files)
+    assert existing.joinpath("OUTCAR").read_text() == "old outcar"
+    # vasprun/CONTCAR created (weren't present)
+    assert existing.joinpath("vasprun.xml").is_file()
+    assert existing.joinpath("CONTCAR").is_file()
+    # input files unchanged
+    assert existing.joinpath("POSCAR").read_text() == "dummy"
+
+
+def test_fetch_into_existing_skips_extant_files(
+    cache_root: Path, tmp_path: Path,
+):
+    """into_existing skips writing output files that already exist."""
+    calc = write_calc(tmp_path / "calc")
+    key = put(calc, root=cache_root)
+    existing = tmp_path / "existing"
+    existing.mkdir()
+    (existing / "OUTCAR").write_text("keep me")
+    # put with overwrite to ensure we know what OUTCAR was, then restore fresh
+    import vasp_cache.api
+    vasp_cache.api.fetch(key, existing, root=cache_root, into_existing=True)
+    # OUTCAR should be skipped (already exists)
+    assert existing.joinpath("OUTCAR").read_text() == "keep me"
+    # but vasprun should be written (didn't exist)
+    assert existing.joinpath("vasprun.xml").is_file()
+
+
+def test_fetch_into_existing_requires_existing_dir(
+    cache_root: Path, tmp_path: Path,
+):
+    """into_existing=True raises FileNotFoundError if dir doesn't exist."""
+    calc = write_calc(tmp_path / "calc")
+    key = put(calc, root=cache_root)
+    nonexistent = tmp_path / "nonexistent"
+    import vasp_cache.api
+    with pytest.raises(FileNotFoundError, match="existing directory"):
+        vasp_cache.api.fetch(key, nonexistent, root=cache_root,
+                              into_existing=True)
+
+
+def test_query_converged_only(cache_root: Path, tmp_path: Path, monkeypatch):
+    """converged_only=True returns only converged_ionic=1 entries."""
+    from vasp_cache.api import query as api_query
+    d1 = write_calc(tmp_path / "calc1")
+    d2 = write_calc(tmp_path / "calc2")
+    key1 = put(d1, root=cache_root)
+    key2 = put(d2, root=cache_root)
+    # Both get the same identity key (same inputs), so only one entry
+    # Force one to unconverged
+    import sqlite3
+    db = cache_root / "index.sqlite"
+    conn = sqlite3.connect(str(db))
+    conn.execute("UPDATE entries SET converged_ionic = 0 WHERE identity_key = ?",
+                 (key1,))
+    conn.commit()
+    conn.close()
+    all_rows = api_query(root=cache_root)
+    assert len(all_rows) == 1
+    conv = api_query(root=cache_root, converged_only=True)
+    assert len(conv) == 0  # only entry was forced to unconverged

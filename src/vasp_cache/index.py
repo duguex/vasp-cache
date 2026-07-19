@@ -509,6 +509,7 @@ _FETCH_SQL = """SELECT incar_json, structure_json, kpoints_json, potcar_json,
 
 def fetch(
     identity_key: str, target_dir: Path | str, root: Path | None = None,
+    *, into_existing: bool = False,
 ) -> bool:
     target_dir = Path(target_dir)
     conn = connect(root)
@@ -527,6 +528,15 @@ def fetch(
             if row["contcar_blob"] else b""
     finally:
         conn.close()
+
+    if into_existing:
+        if not target_dir.is_dir():
+            raise FileNotFoundError(
+                f"into_existing requires existing directory: {target_dir}")
+        _write_if_absent(target_dir / "OUTCAR", outcar_data)
+        _write_if_absent(target_dir / "vasprun.xml", vasprun_data)
+        _write_if_absent(target_dir / "CONTCAR", contcar_data)
+        return True
 
     if target_dir.exists():
         raise FileExistsError(
@@ -559,10 +569,15 @@ def fetch(
     try:
         os.rename(str(tmp_dir), str(target_dir))
     except OSError:
-
         shutil.rmtree(tmp_dir, ignore_errors=True)
         raise
     return True
+
+
+def _write_if_absent(path: Path, data: bytes) -> None:
+    """Write `data` to `path` only if the file does not already exist."""
+    if not path.exists():
+        path.write_bytes(data)
 
 
 def _write_kpoints(path: Path, kpts: dict[str, Any]) -> None:
@@ -614,22 +629,24 @@ def query(
     formula: str | None = None,
     root: Path | None = None,
     limit: int = 100,
+    *, converged_only: bool = False,
 ) -> list[dict[str, Any]]:
     conn = connect(root)
     try:
+        conditions = []
+        params: list = []
         if formula:
-            rows = conn.execute(
-                f"SELECT {_QUERY_COLS} FROM entries "
-                "WHERE formula = ? "
-                "ORDER BY created_at DESC LIMIT ?",
-                (formula, int(limit)),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                f"SELECT {_QUERY_COLS} FROM entries "
-                "ORDER BY created_at DESC LIMIT ?",
-                (int(limit),),
-            ).fetchall()
+            conditions.append("formula = ?")
+            params.append(formula)
+        if converged_only:
+            conditions.append("converged_ionic = 1")
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        rows = conn.execute(
+            f"SELECT {_QUERY_COLS} FROM entries "
+            f"{where} "
+            "ORDER BY created_at DESC LIMIT ?",
+            (*params, int(limit)),
+        ).fetchall()
         return [_decode(row) for row in rows]
     finally:
         conn.close()
