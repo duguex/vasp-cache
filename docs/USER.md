@@ -102,7 +102,7 @@ When multiple calculations produce the same identity:
 # Core
 put(directory, root=None) -> str | None     # returns identity_key or None
 has(directory, root=None) -> bool
-fetch(identity_key, target_dir, root=None) -> bool
+fetch(identity_key, target_dir, root=None) -> bool  # raises FileExistsError if target_dir exists
 query(formula=None, root=None, limit=100) -> list[dict]
 rebuild(source_root, root=None, exclude=None) -> dict[str, int]
 stats(root=None) -> dict[str, int | str]
