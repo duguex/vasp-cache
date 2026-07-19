@@ -31,7 +31,8 @@ def main(argv: list[str] | None = None) -> int:
     has.add_argument("directory", type=Path)
 
     fetch = sub.add_parser("fetch", help="restore indexed output files")
-    fetch.add_argument("directory", type=Path)
+    fetch.add_argument("key", help="identity key or source directory")
+    fetch.add_argument("target", type=Path, help="output directory")
 
     query = sub.add_parser("query", help="query indexed calculations")
     query.add_argument("--formula", "-f")
@@ -65,7 +66,7 @@ def main(argv: list[str] | None = None) -> int:
         print("true" if hit else "false")
         return 0 if hit else 1
     if args.command == "fetch":
-        hit = api.fetch(args.directory, root=root)
+        hit = api.fetch(args.key, args.target, root=root)
         print("hit" if hit else "miss")
         return 0 if hit else 1
     if args.command == "query":
