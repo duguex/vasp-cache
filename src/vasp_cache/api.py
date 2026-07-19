@@ -54,21 +54,12 @@ def get_meta(
             identity = index.identity_for_directory(input_dir)
         except ValueError:
             return None
-        rows = index.query(root=root, limit=1000)
-        return next(
-            (row for row in rows if row["identity_key"] == identity.key), None
-        )
-    rows = index.query(formula=formula, root=root, limit=1000)
-    if content_hash is not None:
-        return next(
-            (row for row in rows if row["identity_key"] == content_hash), None)
+        return index._get_by_key(identity.key, root=root)
     if key is not None:
-        return next(
-            (row for row in rows
-             if key == row["identity_key"]
-             or key == row.get("source_path", "")),
-            None,
-        )
+        return index._get_by_key(key, root=root)
+    if content_hash is not None:
+        return index._get_by_key(content_hash, root=root)
+    rows = index.query(formula=formula, root=root, limit=1)
     return rows[0] if rows else None
 
 
