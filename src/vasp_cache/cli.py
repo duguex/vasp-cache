@@ -39,8 +39,9 @@ def main(argv: list[str] | None = None) -> int:
     query = sub.add_parser("query", help="query indexed calculations")
     query.add_argument("--formula", "-f")
     query.add_argument("--limit", "-n", type=int, default=100)
+    query.add_argument("--converged-only", action="store_true",
+                       help="only show ionically converged entries")
     query.add_argument("--json", action="store_true")
-
     sub.add_parser("status", help="show index counts")
 
     args = parser.parse_args(argv)
@@ -72,7 +73,8 @@ def main(argv: list[str] | None = None) -> int:
         print("hit" if hit else "miss")
         return 0 if hit else 1
     if args.command == "query":
-        rows = api.query(args.formula, root=root, limit=args.limit)
+        rows = api.query(args.formula, root=root, limit=args.limit,
+                         converged_only=args.converged_only)
         print(json.dumps(rows, indent=2, sort_keys=True) if args.json else len(rows))
         return 0
     payload = api.stats(root=root)
