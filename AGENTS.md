@@ -49,7 +49,7 @@ tests/                # pytest (5 test modules + conftest.py, 27 tests)
   test_paths.py       # Cache root resolution
   test_packaging.py   # Wheel package-data check
 docs/                 # User + integration + spec docs
-scripts/              # Utility scripts (some stale post-v3 migration — see below)
+scripts/              # Utility scripts (some stale post-v3 migration, removed per #25 — see below)
 ```
 
 ## Development Commands
@@ -78,7 +78,9 @@ python -m build --wheel          # → dist/vasp_cache-0.3.0-py3-none-any.whl
 |------|------|
 | `pyproject.toml` | Build (setuptools), deps (pymatgen≥2023.0), entry point `vasp-cache`, v0.3.0 |
 | `src/vasp_cache/__init__.py` | Re-exports: put, has, fetch, query, rebuild, stats, get_meta, list_entries, IdentityInputError, override_cache_root, Identity, identity_for_directory |
-| `src/vasp_cache/index.py` | Core engine: schema, identity normalizers, put/fetch/rebuild, collision, extraction |
+| `src/vasp_cache/identity.py` | 5-layer identity: Identity dataclass, normalize_*, identity_for_directory |
+| `src/vasp_cache/extraction.py` | OUTCAR/vasprun structured extraction via pymatgen |
+| `src/vasp_cache/index.py` | Storage engine: schema, put/fetch/rebuild, query, collision |
 | `src/vasp_cache/cli.py` | CLI: `vasp-cache {rebuild,put,has,fetch,query,status}` |
 | `tests/conftest.py` | Shared fixtures: `cache_root`, `write_minimal_inputs`, `write_complete_calc` |
 | `docs/superpowers/specs/2026-07-18-v3-layered-identity.md` | Authoritative v3 design spec |
@@ -100,7 +102,7 @@ python -m build --wheel          # → dist/vasp_cache-0.3.0-py3-none-any.whl
 - **Fixture isolation**: `cache_root` fixture provides temp directory via `monkeypatch`
 - **Mocking**: `monkeypatch.setattr` for collision tests to control `_extract_vasprun`
 - **Test data**: synthetic Si POSCAR/INCAR/KPOINTS/POTCAR in tests; consumer tests use real CsEuCl3 on NFS
-- **27 tests**: identity (3), put/fetch/query (4), rebuild (2), CLI (2), collision (4: replace, stay, audit, tie-break), packaging (1), paths (1), consumers (4), INCAR normalizer (1)
+- **48 tests**: identity/put/fetch/query/rebuild/collision/concurrent/overwrite/lattice + CLI + schema + #26/#29 regression
 - **No CI configured**
 
 ## Stale Scripts (post-v3 migration)

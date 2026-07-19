@@ -35,45 +35,22 @@ def override_cache_root(p: Path | None) -> None:
     """Override the cache root directory (primarily for tests).
 
     Pass ``None`` to clear the override and fall back to env / default.
-    Also closes meta DB connections so the next op uses the new root.
     """
     global _cache_root
     with _lock:
         _cache_root = Path(p).resolve() if p is not None else None
-    try:
-        from vasp_cache.meta import close_all
-
-        close_all()
-    except Exception:
-        pass
 
 
 def _reset_project() -> None:
-    """Drop cache-root override and meta connections (tests).
+    """Drop cache-root override (test teardown).
 
     Name kept for test compatibility (was signac project reset).
     """
     global _cache_root
     with _lock:
         _cache_root = None
-    try:
-        from vasp_cache.meta import close_all
-
-        close_all()
-    except Exception:
-        pass
 
 
 def cache_root() -> Path:
     """Return the current effective cache root without creating it."""
     return _resolved_root()
-
-
-def get_project():
-    """Deprecated: signac project no longer used.
-
-    Kept so older tests fail clearly if still imported for job.fn paths.
-    """
-    raise RuntimeError(
-        "signac backend removed; use vasp_cache.api / meta / cas instead of get_project()"
-    )

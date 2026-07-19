@@ -1,23 +1,41 @@
-"""SQLite index for VASP calculation directories — BLOB + structured extracts."""
+"""SQLite storage engine for vasp-cache — schema, put, fetch, query, rebuild."""
 
 from __future__ import annotations
 
 import fnmatch
-import hashlib
 import json
-import math
 import os
-import re
 import sqlite3
 import tempfile
-import zlib
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Iterator
 import shutil
 
 from vasp_cache.errors import IdentityInputError
+from vasp_cache.identity import (
+    Identity,
+    identity_for_directory,
+    normalize_incar,
+    normalize_kpoints,
+    normalize_lattice,
+    normalize_potcar,
+)
+from vasp_cache.extraction import (
+    _compress,
+    _decompress,
+    _extract_outcar,
+    _extract_vasprun,
+)
 from vasp_cache.paths import cache_root
+
+# Re-export for test monkeypatch compatibility
+__all__ = [
+    "Identity", "identity_for_directory",
+    "normalize_incar", "normalize_kpoints", "normalize_potcar", "normalize_lattice",
+    "_compress", "_decompress", "_extract_outcar", "_extract_vasprun",
+    "connect", "put", "fetch", "query", "has", "rebuild",
+    "_get_by_key", "db_path",
+]
 
 _DB_NAME = "index.sqlite"
 
@@ -69,221 +87,8 @@ _REQUIRED_FILES = ("POSCAR", "INCAR", "KPOINTS", "POTCAR",
                    "OUTCAR", "CONTCAR", "vasprun.xml")
 
 
-# --- helpers -----------------------------------------------------------
-
-def _compress(data: bytes) -> bytes:
-    return zlib.compress(data, level=6)
-
-
-def _decompress(data: bytes) -> bytes:
-    return zlib.decompress(data)
-
-
-# --- identity ----------------------------------------------------------
-
-@dataclass(frozen=True)
-class Identity:
-    key: str
-    formula: str
-    incar: dict[str, str]
-    structure_json: str
-    kpoints: dict[str, Any]
-    potcar: dict[str, Any]
-    lattice: dict[str, Any]
-
 def db_path(root: Path | None = None) -> Path:
     return (Path(root) if root is not None else cache_root()) / _DB_NAME
-
-
-def normalize_incar(path: Path | str) -> dict[str, str]:
-    """Return sorted canonical INCAR dict, preserving value text."""
-    path = Path(path)
-    if not path.is_file():
-        raise IdentityInputError(f"identity requires INCAR: {path}")
-    text = path.read_text("utf-8")
-    values: dict[str, str] = {}
-    for line in text.splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith(("#", "!", "//")):
-            continue
-        delim = "=" if "=" in stripped else ";"
-        if delim not in stripped:
-            continue
-        key, _, val = stripped.partition(delim)
-        key = key.strip().upper()
-        val = val.strip()
-        for cm in (" #", "\t#", " !", "\t!"):
-            if cm in val:
-                val = val[:val.index(cm)].strip()
-                break
-        val = " ".join(val.split())
-        if key and val:
-            values[key] = val
-    if not values:
-        raise IdentityInputError(f"INCAR contains no parameters: {path}")
-    return dict(sorted(values.items()))
-
-
-def normalize_kpoints(path: Path | str) -> dict[str, Any]:
-    """Canonical KPOINTS dict for identity and reconstruction."""
-    path = Path(path)
-    if not path.is_file():
-        raise IdentityInputError(f"identity requires KPOINTS: {path}")
-    try:
-        from pymatgen.io.vasp.inputs import Kpoints
-        k = Kpoints.from_file(str(path))
-        return dict(k.as_dict())
-    except Exception as exc:
-        raise IdentityInputError(f"invalid KPOINTS: {path}") from exc
-
-
-def normalize_potcar(path: Path | str) -> dict[str, Any]:
-    """Extract POTCAR identity tokens."""
-    path = Path(path)
-    if not path.is_file():
-        raise IdentityInputError(f"identity requires POTCAR: {path}")
-    data = path.read_bytes()
-    entries: list[dict[str, str]] = []
-    for m in re.finditer(
-        rb"TITEL\s*=\s*PAW(?:_PKJ)?_(\S+)\s+(\S+)\s*(?:(\d{2}\w{3}\d{4}))?",
-        data,
-    ):
-        xc = m.group(1).decode("ascii")
-        elem = m.group(2).decode("ascii")
-        version = m.group(3).decode("ascii") if m.group(3) else ""
-        entries.append({"element": elem, "xc": xc, "version": version})
-    if not entries:
-        raise IdentityInputError(f"POTCAR: no TITEL found: {path}")
-    return {
-        "entries": entries,
-        "species": [e["element"] for e in entries],
-        "xc": entries[0]["xc"],
-    }
-
-
-def normalize_lattice(structure_dict: dict[str, Any]) -> dict[str, Any]:
-    """Canonical lattice parameters, invariant under basis permutation."""
-    lat = structure_dict.get("lattice", {})
-    mat = lat.get("matrix", [[1, 0, 0], [0, 1, 0], [0, 0, 1]])
-
-    def _len(v):
-        return math.sqrt(sum(x * x for x in v))
-
-    def _angle(v1, v2):
-        n1, n2 = _len(v1), _len(v2)
-        if n1 == 0.0 or n2 == 0.0:
-            raise IdentityInputError(
-                "degenerate lattice: zero-length vector")
-        dot = sum(x * y for x, y in zip(v1, v2))
-        return math.degrees(math.acos(
-            max(-1.0, min(1.0, dot / (n1 * n2)))
-        ))
-
-    def _params(a, b, c):
-        return (
-            round(_len(a), 3), round(_len(b), 3), round(_len(c), 3),
-            round(_angle(b, c), 1),
-            round(_angle(a, c), 1),
-            round(_angle(a, b), 1),
-        )
-
-    # enumerate 6 permutations of lattice vectors, pick lexicographically smallest
-    from itertools import permutations
-    best = None
-    for (i, j, k) in permutations([0, 1, 2]):
-        params = _params(mat[i], mat[j], mat[k])
-        if best is None or params < best:
-            best = params
-
-    return {"a": best[0], "b": best[1], "c": best[2],
-            "alpha": best[3], "beta": best[4], "gamma": best[5]}
-
-
-def _structure_from_poscar(path: Path | str) -> tuple[str, str]:
-    path = Path(path)
-    if not path.is_file():
-        raise IdentityInputError(f"identity requires POSCAR: {path}")
-    try:
-        from pymatgen.core.structure import Structure
-        structure = Structure.from_file(str(path))
-    except Exception as exc:
-        raise IdentityInputError(f"invalid POSCAR: {path}") from exc
-    formula = structure.composition.reduced_formula
-    if not formula:
-        raise IdentityInputError(f"POSCAR has no chemical formula: {path}")
-    structure.sort()
-    structure_json = json.dumps(
-        structure.as_dict(), sort_keys=True, default=str,
-    )
-    return formula, structure_json
-
-
-def identity_for_directory(directory: Path | str) -> Identity:
-    directory = Path(directory)
-    formula, structure_json = _structure_from_poscar(directory / "POSCAR")
-    incar = normalize_incar(directory / "INCAR")
-    kpoints = normalize_kpoints(directory / "KPOINTS")
-    potcar = normalize_potcar(directory / "POTCAR")
-    lattice = normalize_lattice(json.loads(structure_json))
-    payload = json.dumps(
-        {"formula": formula, "incar": incar,
-         "kpoints": kpoints, "potcar": potcar, "lattice": lattice},
-        ensure_ascii=True, sort_keys=True, separators=(",", ":"),
-    ).encode("utf-8")
-    return Identity(
-        hashlib.sha256(payload).hexdigest(), formula, incar, structure_json,
-        kpoints, potcar, lattice,
-    )
-
-
-# --- structured extracts -----------------------------------------------
-
-def _extract_outcar(path: Path) -> dict[str, Any]:
-    """Extract fields from original OUTCAR via pymatgen.Outcar."""
-    result: dict[str, Any] = {
-        "final_energy": None, "total_mag": None,
-        "electrostatic_potentials": None,
-    }
-    try:
-        from pymatgen.io.vasp.outputs import Outcar
-        o = Outcar(str(path))
-        if o.final_energy is not None:
-            result["final_energy"] = float(o.final_energy)
-        if o.total_mag is not None:
-            result["total_mag"] = float(o.total_mag)
-        eps = o.electrostatic_potential
-        if eps is not None:
-            result["electrostatic_potentials"] = [float(p) for p in eps]
-    except Exception:
-        pass
-    return result
-
-
-def _extract_vasprun(path: Path) -> dict[str, Any]:
-    """Extract fields from vasprun.xml via pymatgen.Vasprun."""
-    result: dict[str, Any] = {
-        "n_ionic_steps": None,
-        "converged_ionic": None,
-        "converged_electronic": None,
-        "final_structure_json": None,
-        "final_energy": None,
-    }
-    try:
-        from pymatgen.io.vasp.outputs import Vasprun
-        v = Vasprun(str(path), parse_dos=False, parse_eigen=False)
-        result["n_ionic_steps"] = len(v.ionic_steps)
-        result["converged_ionic"] = int(v.converged_ionic)
-        result["converged_electronic"] = int(v.converged_electronic)
-        final_s = v.final_structure
-        result["final_structure_json"] = (
-            final_s.as_dict() if final_s is not None else None
-        )
-        result["final_energy"] = (
-            float(v.final_energy) if v.final_energy is not None else None
-        )
-    except Exception:
-        pass
-    return result
 
 
 # --- schema ------------------------------------------------------------
@@ -292,7 +97,7 @@ _SCHEMA_VERSION = 1
 
 
 def _init_schema(conn: sqlite3.Connection) -> None:
-    """Ensure a compatible schema exists; create if fresh; upgrade v0→v3."""
+    """Ensure a compatible schema exists; create if fresh; upgrade v0->v3."""
     version = conn.execute("PRAGMA user_version").fetchone()[0]
     if version == _SCHEMA_VERSION:
         return
@@ -336,6 +141,8 @@ def connect(root: Path | None = None) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys = ON")
     _init_schema(conn)
     return conn
+
+
 _INSERT_SQL = """INSERT INTO entries (
      identity_key, formula, incar_json, structure_json,
      kpoints_json, potcar_json, lattice_json,
@@ -367,9 +174,7 @@ _INSERT_SQL = """INSERT INTO entries (
      created_at              = datetime('now')"""
 
 
-def close_all() -> None:
-    pass
-
+# --- collision handling ------------------------------------------------
 
 def _should_replace(
     conn: sqlite3.Connection,
@@ -411,6 +216,8 @@ def _record_discard(
          final_energy, converged_ionic, converged_electronic),
     )
 
+
+# --- put ---------------------------------------------------------------
 
 def _put_into_conn(
     conn: sqlite3.Connection, identity: Identity, directory: Path,
@@ -588,7 +395,7 @@ def _write_kpoints(path: Path, kpts: dict[str, Any]) -> None:
 
 def _write_potcar_stub(path: Path, potcar: dict[str, Any]) -> None:
     """Write TITEL-only POTCAR stub for downstream consumers."""
-    lines = []
+    lines: list[str] = []
     for entry in potcar.get("entries", []):
         elem = entry["element"]
         xc = entry["xc"]
