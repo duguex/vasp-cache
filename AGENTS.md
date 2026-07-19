@@ -52,10 +52,6 @@ docs/                 # User + integration + spec docs
 scripts/              # Utility scripts (some stale post-v3 migration — see below)
 ```
 
-## Issue Tracking
-
-All issues are tracked on GitHub: https://github.com/duguex/vasp-cache/issues
-
 ## Development Commands
 
 ```bash

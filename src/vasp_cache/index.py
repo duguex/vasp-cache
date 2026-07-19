@@ -14,7 +14,6 @@ import zlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Iterator
-import shutil
 
 from vasp_cache.errors import IdentityInputError
 from vasp_cache.paths import cache_root
@@ -62,7 +61,6 @@ CREATE TABLE IF NOT EXISTS discarded_candidates (
 CREATE INDEX IF NOT EXISTS entries_formula ON entries(formula);
 CREATE INDEX IF NOT EXISTS entries_energy ON entries(final_energy);
 CREATE INDEX IF NOT EXISTS discarded_identity ON discarded_candidates(identity_key);
-CREATE INDEX IF NOT EXISTS entries_created ON entries(created_at);
 """
 
 _REQUIRED_FILES = ("POSCAR", "INCAR", "KPOINTS", "POTCAR",
@@ -87,9 +85,7 @@ class Identity:
     formula: str
     incar: dict[str, str]
     structure_json: str
-    kpoints: dict[str, Any]
-    potcar: dict[str, Any]
-    lattice: dict[str, Any]
+
 
 def db_path(root: Path | None = None) -> Path:
     return (Path(root) if root is not None else cache_root()) / _DB_NAME
@@ -171,9 +167,6 @@ def normalize_lattice(structure_dict: dict[str, Any]) -> dict[str, Any]:
 
     def _angle(v1, v2):
         n1, n2 = _len(v1), _len(v2)
-        if n1 == 0.0 or n2 == 0.0:
-            raise IdentityInputError(
-                "degenerate lattice: zero-length vector")
         dot = sum(x * y for x, y in zip(v1, v2))
         return math.degrees(math.acos(
             max(-1.0, min(1.0, dot / (n1 * n2)))
@@ -232,7 +225,6 @@ def identity_for_directory(directory: Path | str) -> Identity:
     ).encode("utf-8")
     return Identity(
         hashlib.sha256(payload).hexdigest(), formula, incar, structure_json,
-        kpoints, potcar, lattice,
     )
 
 
@@ -298,7 +290,6 @@ def connect(root: Path | None = None) -> sqlite3.Connection:
     root.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path(root)))
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
     _create_schema_if_needed(conn)
     return conn
 
@@ -307,7 +298,14 @@ def _create_schema_if_needed(conn: sqlite3.Connection) -> None:
     # DDL uses IF NOT EXISTS — safe to call unconditionally
     _create_schema(conn)
 
-_INSERT_SQL = """INSERT INTO entries (
+
+def close_all() -> None:
+    pass
+
+
+# --- put ---------------------------------------------------------------
+
+_INSERT_SQL = """INSERT OR REPLACE INTO entries (
      identity_key, formula, incar_json, structure_json,
      kpoints_json, potcar_json, lattice_json,
      final_energy, total_mag, electrostatic_potentials,
@@ -316,30 +314,7 @@ _INSERT_SQL = """INSERT INTO entries (
      outcar_blob, vasprun_blob, contcar_blob, source_path
    ) VALUES (?, ?, ?, ?, ?, ?, ?,
              ?, ?, ?, ?, ?, ?, ?,
-             ?, ?, ?, ?)
-   ON CONFLICT(identity_key) DO UPDATE SET
-     formula                 = excluded.formula,
-     incar_json              = excluded.incar_json,
-     structure_json          = excluded.structure_json,
-     kpoints_json            = excluded.kpoints_json,
-     potcar_json             = excluded.potcar_json,
-     lattice_json            = excluded.lattice_json,
-     final_energy            = excluded.final_energy,
-     total_mag               = excluded.total_mag,
-     electrostatic_potentials= excluded.electrostatic_potentials,
-     final_structure_json    = excluded.final_structure_json,
-     n_ionic_steps           = excluded.n_ionic_steps,
-     converged_ionic         = excluded.converged_ionic,
-     converged_electronic    = excluded.converged_electronic,
-     outcar_blob             = excluded.outcar_blob,
-     vasprun_blob            = excluded.vasprun_blob,
-     contcar_blob            = excluded.contcar_blob,
-     source_path             = excluded.source_path,
-     created_at              = datetime('now')"""
-
-
-def close_all() -> None:
-    pass
+             ?, ?, ?, ?)"""
 
 
 def _should_replace(
@@ -394,12 +369,12 @@ def _put_into_conn(
 
     outcar_extract = _extract_outcar(directory / "OUTCAR")
     vasprun_extract = _extract_vasprun(directory / "vasprun.xml")
-    kpoints = identity.kpoints
-    potcar = identity.potcar
-    lattice = identity.lattice
+    kpoints = normalize_kpoints(directory / "KPOINTS")
+    potcar = normalize_potcar(directory / "POTCAR")
+    lattice = normalize_lattice(json.loads(identity.structure_json))
 
-    vfe = vasprun_extract.get("final_energy")
-    final_energy = vfe if vfe is not None else outcar_extract.get("final_energy")
+    final_energy = (vasprun_extract.get("final_energy")
+                    or outcar_extract.get("final_energy"))
     conv_ionic = vasprun_extract.get("converged_ionic")
     conv_electronic = vasprun_extract.get("converged_electronic")
 
@@ -499,40 +474,26 @@ def fetch(
     finally:
         conn.close()
 
-    if target_dir.exists():
-        raise FileExistsError(
-            f"refusing to overwrite existing directory: {target_dir}")
-    parent = target_dir.parent
-    parent.mkdir(parents=True, exist_ok=True)
-    tmp_dir = Path(tempfile.mkdtemp(prefix=".fetch-", dir=str(parent)))
-    try:
-        (tmp_dir / "OUTCAR").write_bytes(outcar_data)
-        (tmp_dir / "vasprun.xml").write_bytes(vasprun_data)
-        (tmp_dir / "CONTCAR").write_bytes(contcar_data)
+    target_dir.mkdir(parents=True, exist_ok=True)
 
-        from pymatgen.core.structure import Structure
-        structure = Structure.from_dict(json.loads(structure_json))
-        structure.to(fmt="poscar", filename=str(tmp_dir / "POSCAR"))
+    (target_dir / "OUTCAR").write_bytes(outcar_data)
+    (target_dir / "vasprun.xml").write_bytes(vasprun_data)
+    (target_dir / "CONTCAR").write_bytes(contcar_data)
 
-        incar = json.loads(incar_json)
-        with open(tmp_dir / "INCAR", "w") as f:
-            for key, val in sorted(incar.items()):
-                f.write(f"{key} = {val}\n")
+    from pymatgen.core.structure import Structure
+    structure = Structure.from_dict(json.loads(structure_json))
+    structure.to(fmt="poscar", filename=str(target_dir / "POSCAR"))
 
-        kpts = json.loads(kpoints_json)
-        _write_kpoints(tmp_dir / "KPOINTS", kpts)
+    incar = json.loads(incar_json)
+    with open(target_dir / "INCAR", "w") as f:
+        for key, val in sorted(incar.items()):
+            f.write(f"{key} = {val}\n")
 
-        _write_potcar_stub(tmp_dir / "POTCAR", json.loads(potcar_json))
-    except Exception:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-        raise
+    kpts = json.loads(kpoints_json)
+    _write_kpoints(target_dir / "KPOINTS", kpts)
 
-    try:
-        os.rename(str(tmp_dir), str(target_dir))
-    except OSError:
+    _write_potcar_stub(target_dir / "POTCAR", json.loads(potcar_json))
 
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-        raise
     return True
 
 
@@ -574,13 +535,6 @@ def _decode(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
-_QUERY_COLS = (
-    "identity_key, formula, incar_json, structure_json, "
-    "final_energy, total_mag, n_ionic_steps, "
-    "converged_ionic, converged_electronic, source_path, created_at"
-)
-
-
 def query(
     formula: str | None = None,
     root: Path | None = None,
@@ -590,33 +544,18 @@ def query(
     try:
         if formula:
             rows = conn.execute(
-                f"SELECT {_QUERY_COLS} FROM entries "
-                "WHERE formula = ? "
-                "ORDER BY created_at DESC LIMIT ?",
+                """SELECT * FROM entries
+                   WHERE formula = ?
+                   ORDER BY created_at DESC LIMIT ?""",
                 (formula, int(limit)),
             ).fetchall()
         else:
             rows = conn.execute(
-                f"SELECT {_QUERY_COLS} FROM entries "
-                "ORDER BY created_at DESC LIMIT ?",
+                """SELECT * FROM entries
+                   ORDER BY created_at DESC LIMIT ?""",
                 (int(limit),),
             ).fetchall()
         return [_decode(row) for row in rows]
-    finally:
-        conn.close()
-
-
-def _get_by_key(key: str, root: Path | None = None) -> dict[str, Any] | None:
-    """Look up a single entry by identity_key or source_path."""
-    conn = connect(root)
-    try:
-        row = conn.execute(
-            f"SELECT {_QUERY_COLS} FROM entries "
-            "WHERE identity_key = ? OR source_path = ? "
-            "ORDER BY created_at DESC LIMIT 1",
-            (key, key),
-        ).fetchone()
-        return _decode(row) if row else None
     finally:
         conn.close()
 
@@ -668,7 +607,6 @@ def rebuild(
     os.close(fd)
     temp = Path(temp_name)
     conn = sqlite3.connect(str(temp))
-    conn.execute("PRAGMA foreign_keys = ON")
     conn.row_factory = sqlite3.Row
     scanned = skipped = done = 0
     try:
