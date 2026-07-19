@@ -16,7 +16,7 @@ identity_key = SHA256(canonical_json({formula, incar, kpoints, potcar, lattice})
 | incar | INCAR | `Incar.from_file()` → dict → JSON | ✅ |
 | kpoints | KPOINTS | `Kpoints.from_file()` → as_dict → JSON | ✅ |
 | potcar | POTCAR | species tokens + XC + versions → JSON | ✅ |
-| lattice | POSCAR | {a, b, c, alpha, beta, gamma}, tolerance: a/b/c 0.01 Å, α/β/γ 0.1° | ✅ |
+| lattice | POSCAR | {a, b, c, alpha, beta, gamma}, rounding a/b/c 0.001 Å, α/β/γ 0.1° | ✅ |
 
 基矢置换: 枚举 6 种 (a,b,c) 排列, 从 lattice matrix 重新计算对应的 (α,β,γ), 选 lexicographically 最小的六元组.
 

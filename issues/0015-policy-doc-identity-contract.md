@@ -6,7 +6,7 @@
 
 ## Status
 
-Open. Implementation details scattered (DESIGN, CUTOVER, issues).
+Resolved. Identity contract documented in `docs/superpowers/specs/2026-07-18-v3-layered-identity.md` §1 and `docs/USER.md` §Identity.
 
 ## Expected
 

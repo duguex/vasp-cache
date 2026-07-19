@@ -1,4 +1,4 @@
-# Fresh Formula–INCAR Index Design
+(SUPERSEDED by v3-layered-identity.md) # Fresh Formula
 
 **Status:** Approved by the explicit implementation request to discard the old database and rebuild from the target tree.
 
