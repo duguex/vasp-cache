@@ -2,9 +2,10 @@
 
 ## Current Position
 
-`vasp-cache` is an exact VASP calculation cache: avoid re-running deterministic
-VASP calculations. Single SQLite backend (index.sqlite) with zlib-compressed BLOBs.
-
+`vasp-cache` is a coarse-identity VASP calculation cache: avoid re-running the
+same DFT setup (same formula, settings, cell). Single SQLite backend
+(index.sqlite) with zlib-compressed BLOBs. 5-layer key intentionally excludes
+atomic coordinates — same cell with same parameters maps to same cache entry.
 Implemented in v3 (0.3.0):
 
 - 5-layer identity: formula, incar, kpoints, potcar, lattice
@@ -17,7 +18,7 @@ Implemented in v3 (0.3.0):
 
 ## Later
 
-- `on_conflict=strict|skip|overwrite` modes for put()
+- `on_conflict=strict|skip` modes for put() (overwrite=True already implemented)
 - Archive export/import (needs v3 rewrite)
 - Batch performance measurement
 - CI configuration
